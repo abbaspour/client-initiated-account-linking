@@ -1,0 +1,10 @@
+.idea/
+terraform.tfstate
+terraform.tfstate.backup
+*.plan
+events/
+terraform.auto.tfvars
+.terraform.lock.hcl
+*.swp
+.terraform
+package-lock.json
