@@ -60,10 +60,18 @@ exports.onExecutePostLogin = async (event, api) => {
 
     const {requested_scopes} = event?.transaction;
 
-    const requestLinkAccountScope = Array.isArray(requested_scopes) && requested_scopes.length > 0 && requested_scopes.includes('link_account');
+    let requestedOperation = null;
 
-    if (!requestLinkAccountScope) {
-        console.log(`skip since no link_account scope present`);
+    if (Array.isArray(requested_scopes) && requested_scopes.length > 0) {
+        if (requested_scopes.includes('link_account')) {
+            requestedOperation = 'link_account';
+        } else if (requested_scopes.includes('unlink_account')) {
+            requestedOperation = 'unlink_account';
+        }
+    }
+
+    if (requestedOperation === null) {
+        console.log('Error: Missing required scopes. Expecting either link_account or unlink_account.');
         return;
     }
 
@@ -76,8 +84,8 @@ exports.onExecutePostLogin = async (event, api) => {
     }
 
     const {
-        "ext-requested_connection": requested_connection,
-        "ext-requested_connection_scopes": requested_connection_scopes
+        "requested_connection": requested_connection,
+        "requested_connection_scopes": requested_connection_scopes
     } = event.request.query;
 
     if (!requested_connection) {
@@ -86,8 +94,14 @@ exports.onExecutePostLogin = async (event, api) => {
     }
 
     // already has a link with upstream connection ?
-    if (hasLinkedIdentityWithConnection(event.user, requested_connection)) {
+    const linkedStatus = hasLinkedIdentityWithConnection(event.user, requested_connection)
+    if (requestedOperation == 'link_account' && linkedStatus) {
         console.log(`user already has a linked profile against request connection: ${requested_connection}`);
+        return;
+    }
+
+    if (requestedOperation == 'unlink_account' && !linkedStatus) {
+        console.log(`user does not have a linked profile against requested connection: ${requested_connection}`);
         return;
     }
 
@@ -110,24 +124,33 @@ exports.onExecutePostLogin = async (event, api) => {
     console.log(`nonce for inner tx: ${nonce}`);
     */
 
-    const nonce = makeNonce(event);
-    console.log(`nonce for inner tx: ${nonce}`);
+    switch (requestedOperation) {
+        case 'link_account':
+            const nonce = makeNonce(event);
+            console.log(`nonce for inner tx: ${nonce}`);
 
-    const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
+            const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
 
-    // todo: PKCE
-    const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
-        redirectUri: `https://${domain}/continue`,
-        nonce,
-        responseType: 'code',
-        //prompt: 'login',
-        connection: requested_connection,
-        login_hint: event.user.email,
-        scope: requested_connection_scopes ?? 'openid profile email',
-    });
+            // todo: PKCE
+            const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
+                redirectUri: `https://${domain}/continue`,
+                nonce,
+                responseType: 'code',
+                prompt: 'login',
+                connection: requested_connection,
+                login_hint: event.user.email,
+                scope: requested_connection_scopes ?? 'openid profile email',
+            });
 
-    console.log(`redirecting to ${nestedAuthorizeURL}`);
-    api.redirect.sendUserTo(nestedAuthorizeURL);
+            console.log(`redirecting to ${nestedAuthorizeURL}`);
+            api.redirect.sendUserTo(nestedAuthorizeURL);
+            break;
+        case 'unlink_account':
+            await unLink(event, api, requested_connection);
+            break;
+        default:
+            console.log('Error: Invalid operation.');
+    }
 };
 
 
@@ -228,6 +251,7 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
     } catch (err) {
         console.log(`unable to link, no changes. error: ${JSON.stringify(err)}`);
     }
+
 }
 
 async function verifyIdToken(api, id_token, domain, client_id, nonce) {
@@ -306,3 +330,61 @@ async function exchange(domain, client_id, client_secret, code, redirect_uri) {
     return id_token;
 }
 
+async function unLink(event, api, connection_to_unlink) {
+    const {domain} = event.secrets;
+
+    let {value: token} = api.cache.get('management-token') || {};
+
+    if (!token) {
+        const {clientId, clientSecret} = event.secrets || {};
+
+        const cc = new AuthenticationClient({domain, clientId, clientSecret});
+
+        try {
+            const {data} = await cc.oauth.clientCredentialsGrant({audience: `https://${domain}/api/v2/`});
+
+            token = data?.access_token;
+
+            if (!token) {
+                console.log('failed get api v2 cc token');
+                return;
+            }
+            console.log('cache MIS m2m token!');
+
+            console.log(token);
+
+            const result = api.cache.set('management-token', token, {ttl: data.expires_in * 1000});
+
+            if (result?.type === 'error') {
+                console.log('failed to set the token in the cache with error code', result.code);
+            }
+        } catch (err) {
+            console.log('failed calling cc grant', err);
+            return;
+        }
+    }
+
+    const client = new ManagementClient({domain, token});
+
+    // Function to unlink a user identity
+    async function unlinkIdentity(primary_id, connection, unlink_id) {
+        console.log(primary_id, connection, unlink_id);
+        try {
+            const response = await client.users.unlink({
+            id: primary_id,          // Primary user ID (who has linked accounts)
+            provider: connection, // e.g., "google-oauth2"
+            user_id: unlink_id,   // ID of the linked account
+            });
+            console.log("Successfully unlinked identity:", response);
+        } catch (error) {
+            console.error("Error unlinking identity:", error.response?.data || error);
+        }
+    }
+
+    // Run the unlink function
+    const unlinkPromises = event.user.identities
+        .filter(x => x.connection === connection_to_unlink)
+        .map(x => unlinkIdentity(event.user.identities[0].provider + '|' + event.user.identities[0].userId, connection_to_unlink, x.userId));
+
+    await Promise.all(unlinkPromises);
+}
