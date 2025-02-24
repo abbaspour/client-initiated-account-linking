@@ -82,10 +82,7 @@ exports.onExecutePostLogin = async (event, api) => {
         return;
     }
 
-    const {
-        "ext-requested_connection": requested_connection,
-        "ext-requested_connection_scopes": requested_connection_scopes
-    } = event.request.query;
+    const {requested_connection, requested_connection_scopes } = event.request.query;
 
     if (!requested_connection) {
         console.log(`skip since no requested_connection defined`);
@@ -106,7 +103,7 @@ exports.onExecutePostLogin = async (event, api) => {
         target_connection = requested_connection;
         nonce = makeNonce(event);
     } else {
-        if (!link_with_req_conn) {
+        if (link_with_req_conn.length < 1) {
             console.log(`user does not have a linked profile against request connection: ${requested_connection}`);
             return;
         }
