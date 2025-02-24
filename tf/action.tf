@@ -115,6 +115,11 @@ resource "auth0_resource_server_scopes" "my-account" {
     name        = "link_account"
     description = "link_account"
   }
+
+  scopes {
+    name        = "unlink_account"
+    description = "unlink_account"
+  }
 }
 
 
