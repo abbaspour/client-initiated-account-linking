@@ -31,6 +31,11 @@ data "auth0_connection" "facebook" {
   name     = "facebook"
 }
 
+
+data "auth0_connection" "email" {
+  name = "email"
+}
+
 # simple SPA client
 resource "auth0_client" "spa" {
   name            = "JWT.io"
@@ -111,6 +116,18 @@ resource "auth0_connection_clients" "facebook_clients" {
   enabled_clients = [
     auth0_client.spa.id,
     auth0_client.outer_client.id,
+    auth0_client.par_linking_companion_app.id
+  ]
+  /*
+  lifecycle {
+    ignore_changes = [enabled_clients]
+  }
+  */
+}
+
+resource "auth0_connection_clients" "email_clients" {
+  connection_id = data.auth0_connection.email.id
+  enabled_clients = [
     auth0_client.par_linking_companion_app.id
   ]
   /*
