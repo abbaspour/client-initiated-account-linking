@@ -83,8 +83,8 @@ exports.onExecutePostLogin = async (event, api) => {
     }
 
     const {
-        "ext-requested_connection": requested_connection,
-        "ext-requested_connection_scopes": requested_connection_scopes
+        "requested_connection": requested_connection,
+        "requested_connection_scopes": requested_connection_scopes
     } = event.request.query;
 
     if (!requested_connection) {
@@ -110,7 +110,7 @@ exports.onExecutePostLogin = async (event, api) => {
             console.log(`user does not have a linked profile against request connection: ${requested_connection}`);
             return;
         }
-        target_connection = 'email';
+        target_connection = requested_connection;
         nonce = link_with_req_conn[0].user_id;
     }
 
