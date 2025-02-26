@@ -60,16 +60,21 @@ exports.onExecutePostLogin = async (event, api) => {
 
     const { requested_scopes } = event?.transaction;
 
-    if (!(Array.isArray(requested_scopes) && requested_scopes.length == 1)) {
+    if (!(Array.isArray(requested_scopes)) { 
         console.log(`skip since scopes not invalid`);
         return;
     }
 
-    const requestLinkAccountScope = requested_scopes[0] === 'link_account';
-    const requestUnlinkAccountScope = requested_scopes[0] === 'unlink_account';
+    const requestLinkAccountScope = requested_scopes.includes('link_account');
+    const requestUnlinkAccountScope = requested_scopes.includes('unlink_account');
 
     if (!(requestLinkAccountScope || requestUnlinkAccountScope)) {
         console.log(`skip since no link_account or unlink_account scopes present`);
+        return;
+    }
+
+    if (requestLinkAccountScope && requestUnlinkAccountScope) {
+        api.access.deny("Both link_account and unlink_account are requested");
         return;
     }
 
