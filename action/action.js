@@ -60,7 +60,7 @@ exports.onExecutePostLogin = async (event, api) => {
 
     const { requested_scopes } = event?.transaction;
 
-    if (!(Array.isArray(requested_scopes)) { 
+    if (!Array.isArray(requested_scopes)) { 
         console.log(`skip since scopes not invalid`);
         return;
     }
