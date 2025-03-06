@@ -6,7 +6,7 @@
  */
 
 const auth0 = require('auth0-js'); // why node.js sdk doesn't have buildAuthorizeUrl?
-const { ManagementClient, AuthenticationClient } = require('auth0');
+const {ManagementClient, AuthenticationClient} = require('auth0');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 const axios = require('axios');
@@ -14,15 +14,15 @@ const crypto = require('crypto');
 
 const interactive_login = new RegExp('^oidc-');
 const linking_resource_server = 'my-account';
+const maxAllowedAge = 600; // 10 minutes in seconds
 
 const canPromptMfa = (user) => user.enrolledFactors && user.enrolledFactors.length > 0;
 const hasDoneMfa = (event) => event.authentication.methods.some(m => m.name === 'mfa');
-const mapEnrolledToFactors = (user) => user.enrolledFactors.map(f =>
-    f.method === 'sms' ? { type: 'phone', options: { preferredMethod: 'sms' } } : { type: f.method }
-);
+const mapEnrolledToFactors = (user) => user.enrolledFactors.map(f => f.method === 'sms' ? {
+    type: 'phone', options: {preferredMethod: 'sms'}
+} : {type: f.method});
 const linkedIdentityWithConnection = (user, connection) => user.identities.filter(i => i.connection === connection);
-const makeNonce = (event) =>
-    crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
+const makeNonce = (event) => crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
 
 exports.onExecutePostLogin = async (event, api) => {
 
@@ -35,7 +35,7 @@ exports.onExecutePostLogin = async (event, api) => {
 
     console.log(`protocol: ${protocol}, client_id: ${event.client.client_id}`);
 
-    const { clientId } = event.secrets || {};
+    const {clientId} = event.secrets || {};
 
     if (event.client.client_id === clientId) {
         //console.log(`running inner transaction for event: ${JSON.stringify(event)}`);
@@ -50,7 +50,7 @@ exports.onExecutePostLogin = async (event, api) => {
         return;
     }
 
-    const { identifier: resource_server } = event?.resource_server;
+    const {identifier: resource_server} = event?.resource_server;
     console.log(`resource_server: ${resource_server}`);
 
     if (resource_server !== linking_resource_server) {
@@ -58,9 +58,9 @@ exports.onExecutePostLogin = async (event, api) => {
         return;
     }
 
-    const { requested_scopes } = event?.transaction;
+    const {requested_scopes} = event?.transaction;
 
-    if (!Array.isArray(requested_scopes)) { 
+    if (!Array.isArray(requested_scopes)) {
         console.log(`skip since scopes not invalid`);
         return;
     }
@@ -79,7 +79,7 @@ exports.onExecutePostLogin = async (event, api) => {
     }
 
 
-    const { id_token_hint } = event?.request?.query;
+    const {id_token_hint} = event?.request?.query;
     console.log(`id_token_hint: ${id_token_hint}`);
 
     if (!id_token_hint) {
@@ -87,10 +87,7 @@ exports.onExecutePostLogin = async (event, api) => {
         return;
     }
 
-    const {
-        "requested_connection": requested_connection,
-        "requested_connection_scopes": requested_connection_scopes
-    } = event.request.query;
+    const {requested_connection, requested_connection_scopes} = event.request.query;
 
     if (!requested_connection) {
         console.log(`skip since no requested_connection defined`);
@@ -111,15 +108,15 @@ exports.onExecutePostLogin = async (event, api) => {
         target_connection = requested_connection;
         nonce = makeNonce(event);
     } else {
-        if (!link_with_req_conn) {
+        if (!link_with_req_conn || link_with_req_conn.length === 0) {
             console.log(`user does not have a linked profile against request connection: ${requested_connection}`);
             return;
         }
-        target_connection = requested_connection;
+        target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
         nonce = link_with_req_conn[0].user_id;
     }
 
-    const { domain } = event.secrets || {};
+    const {domain} = event.secrets || {};
 
     const incoming_token = await verifyIdToken(api, id_token_hint, domain); // todo: optional auth_time claim check
 
@@ -140,17 +137,18 @@ exports.onExecutePostLogin = async (event, api) => {
 
     console.log(`nonce for inner tx: ${nonce}`);
 
-    const authClient = new auth0.Authentication({ domain, clientID: event.secrets.clientId });
+    const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
 
     // todo: PKCE
     const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
         redirectUri: `https://${domain}/continue`,
         nonce,
         responseType: 'code',
-        //prompt: 'login',
+        prompt: 'login',
+        max_age: 0,
         connection: target_connection,
         login_hint: event.user.email,
-        scope: requested_connection_scopes ?? 'openid profile email',
+        scope: 'openid profile email ' + requested_connection_scopes
     });
 
     console.log(`redirecting to ${nestedAuthorizeURL}`);
@@ -161,12 +159,12 @@ exports.onExecutePostLogin = async (event, api) => {
 exports.onContinuePostLogin = async (event, api) => {
     //console.log(`onContinuePostLogin event: ${JSON.stringify(event)}`);
 
-    const { domain } = event.secrets || {};
+    const {domain} = event.secrets || {};
 
-    const { code } = event.request.query;
+    const {code} = event.request.query;
     const client_id = event.secrets.clientId;
 
-    const { identifier: resource_server } = event?.resource_server;
+    const {identifier: resource_server} = event?.resource_server;
     console.log(`resource_server: ${resource_server}`);
 
     if (resource_server !== linking_resource_server) {
@@ -174,23 +172,23 @@ exports.onContinuePostLogin = async (event, api) => {
         return;
     }
 
-    const { requested_scopes } = event?.transaction;
+    const {requested_scopes} = event?.transaction;
 
-    if (!(Array.isArray(requested_scopes) && requested_scopes.length == 1)) {
-        console.log(`skip since scopes not invalid`);
+    if (!Array.isArray(requested_scopes)) {
+        console.log(`skip since scopes not valid`);
         return;
     }
 
-    const requestLinkAccountScope = requested_scopes[0] === 'link_account';
-    const requestUnlinkAccountScope = requested_scopes[0] === 'unlink_account';
+    const requestLinkAccountScope = requested_scopes.includes('link_account');
+    const requestUnlinkAccountScope = requested_scopes.includes('unlink_account');
 
-    if (!(requestLinkAccountScope || requestUnlinkAccountScope)) {
-        console.log(`skip since no link_account or unlink_account scopes present`);
+    if (requestLinkAccountScope && requestUnlinkAccountScope) {
+        console.log(`skip since both link_account and unlink_account scopes present`);
         return;
     }
 
     const id_token_str = await exchange(domain, client_id, event.secrets.clientSecret, code, `https://${domain}/continue`);
-    //console.log(`id_token string from exchange: ${id_token_str}`);
+    console.log(`id_token string from exchange: ${id_token_str}`);
 
     if (!id_token_str) {
         api.access.deny('error in exchange');
@@ -205,6 +203,8 @@ exports.onContinuePostLogin = async (event, api) => {
         return;
     }
     */
+
+    console.log(`id_token for after continue exchange: ${JSON.stringify(id_token)}`);
 
     if (requestLinkAccountScope) {
 
@@ -222,8 +222,6 @@ exports.onContinuePostLogin = async (event, api) => {
         await linkAndMakePrimary(event, api, id_token.sub);
     } else {
 
-        console.log(`id_token for unlink: ${JSON.stringify(id_token)}`);
-
         const user_id_to_unlink = id_token.nonce; // I know this is not great, but...
 
         if (!user_id_to_unlink) {
@@ -240,17 +238,17 @@ exports.onContinuePostLogin = async (event, api) => {
 async function linkAndMakePrimary(event, api, upstream_sub) {
     //console.log(`linking ${event.user.user_id} under ${primary_sub}`);
 
-    const { domain } = event.secrets;
+    const {domain} = event.secrets;
 
-    let { value: token } = api.cache.get('management-token') || {};
+    let {value: token} = api.cache.get('management-token') || {};
 
     if (!token) {
-        const { clientId, clientSecret } = event.secrets || {};
+        const {clientId, clientSecret} = event.secrets || {};
 
-        const cc = new AuthenticationClient({ domain, clientId, clientSecret });
+        const cc = new AuthenticationClient({domain, clientId, clientSecret});
 
         try {
-            const { data } = await cc.oauth.clientCredentialsGrant({ audience: `https://${domain}/api/v2/` });
+            const {data} = await cc.oauth.clientCredentialsGrant({audience: `https://${domain}/api/v2/`});
 
             token = data?.access_token;
 
@@ -260,7 +258,7 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
             }
             console.log('cache MIS m2m token!');
 
-            const result = api.cache.set('management-token', token, { ttl: data.expires_in * 1000 });
+            const result = api.cache.set('management-token', token, {ttl: data.expires_in * 1000});
 
             if (result?.type === 'error') {
                 console.log('failed to set the token in the cache with error code', result.code);
@@ -271,9 +269,9 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
         }
     }
 
-    const client = new ManagementClient({ domain, token });
+    const client = new ManagementClient({domain, token});
 
-    const { user_id, provider } = event.user.identities[0];
+    const {user_id, provider} = event.user.identities[0];
 
 
     // Have either A or B
@@ -295,7 +293,7 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
     const firstPipeIndex = upstream_sub.indexOf('|');
     const [up_provider, up_user_id] = [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
     try {
-        await client.users.link({ id: `${provider}|${user_id}` }, { user_id: up_user_id, provider: up_provider });
+        await client.users.link({id: `${provider}|${user_id}`}, {user_id: up_user_id, provider: up_provider});
         console.log(`link successful current user to ${up_user_id} of provider: ${up_provider}`);
     } catch (err) {
         console.log(`unable to link, no changes. error: ${JSON.stringify(err)}`);
@@ -305,7 +303,7 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
 async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 
     function getKey(header, callback) {
-        const { value: signingKey } = api.cache.get(`key-${header.kid}`) || {};
+        const {value: signingKey} = api.cache.get(`key-${header.kid}`) || {};
         if (!signingKey) {
             console.log(`cache MIS signing key: ${header.kid}`);
             const client = jwksClient({
@@ -334,6 +332,7 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
     const signature = {
         issuer: `https://${domain}/`,
         algorithms: 'RS256',
+        maxAge: maxAllowedAge
     }
 
     if (nonce) {
@@ -358,22 +357,13 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 async function exchange(domain, client_id, client_secret, code, redirect_uri) {
     console.log(`exchanging code: ${code}`);
 
-    const { data: { id_token } } =
-        await axios({
-            method: 'post',
-            url: `https://${domain}/oauth/token`,
-            data: {
-                client_id,
-                client_secret,
-                code,
-                grant_type: 'authorization_code',
-                redirect_uri
-            },
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            timeout: 5000 // 5 sec
-        });
+    const {data: {id_token}} = await axios({
+        method: 'post', url: `https://${domain}/oauth/token`, data: {
+            client_id, client_secret, code, grant_type: 'authorization_code', redirect_uri
+        }, headers: {
+            'Content-Type': 'application/json'
+        }, timeout: 5000 // 5 sec
+    });
 
     return id_token;
 }
@@ -396,17 +386,17 @@ async function unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink)
 
     console.log(`unlinkIdentity: ` + primary_id, connection, unlink_id);
 
-    const { domain } = event.secrets;
+    const {domain} = event.secrets;
 
-    let { value: token } = api.cache.get('management-token') || {};
+    let {value: token} = api.cache.get('management-token') || {};
 
     if (!token) {
-        const { clientId, clientSecret } = event.secrets || {};
+        const {clientId, clientSecret} = event.secrets || {};
 
-        const cc = new AuthenticationClient({ domain, clientId, clientSecret });
+        const cc = new AuthenticationClient({domain, clientId, clientSecret});
 
         try {
-            const { data } = await cc.oauth.clientCredentialsGrant({ audience: `https://${domain}/api/v2/` });
+            const {data} = await cc.oauth.clientCredentialsGrant({audience: `https://${domain}/api/v2/`});
 
             token = data?.access_token;
 
@@ -418,7 +408,7 @@ async function unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink)
 
             console.log(token);
 
-            const result = api.cache.set('management-token', token, { ttl: data.expires_in * 1000 });
+            const result = api.cache.set('management-token', token, {ttl: data.expires_in * 1000});
 
             if (result?.type === 'error') {
                 console.log('failed to set the token in the cache with error code', result.code);
@@ -429,7 +419,7 @@ async function unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink)
         }
     }
 
-    const client = new ManagementClient({ domain, token });
+    const client = new ManagementClient({domain, token});
 
     try {
         const response = await client.users.unlink({
