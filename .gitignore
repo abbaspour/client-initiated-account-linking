@@ -8,3 +8,4 @@ terraform.auto.tfvars
 *.swp
 .terraform
 package-lock.json
+*.pem

@@ -1,6 +1,10 @@
 /**
  * Handler that will be called during the execution of a PostLogin flow.
  *
+ * Author: Amin Abbaspour
+ * Date: 2025-01-02
+ * License: MIT (https://github.com/auth0/client-initiated-account-linking/blob/main/LICENSE)
+ *
  * @param {Event} event - Details about the user and the context in which they are logging in.
  * @param {PostLoginAPI} api - Interface whose methods can be used to change the behavior of the login.
  */
@@ -80,7 +84,6 @@ exports.onExecutePostLogin = async (event, api) => {
 
 
     const {id_token_hint} = event?.request?.query;
-    console.log(`id_token_hint: ${id_token_hint}`);
 
     if (!id_token_hint) {
         console.log(`skip since no id_token_hint present`);
@@ -118,7 +121,10 @@ exports.onExecutePostLogin = async (event, api) => {
 
     const {domain} = event.secrets || {};
 
+    console.log(`verifying id_token_hint: ${id_token_hint}`);
     const incoming_token = await verifyIdToken(api, id_token_hint, domain); // todo: optional auth_time claim check
+
+    console.log(`incoming_token: ${JSON.stringify(incoming_token)}`);
 
     if (incoming_token.sub !== event?.user?.user_id) {
         api.access.deny('sub mismatch');
@@ -331,7 +337,7 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 
     const signature = {
         issuer: `https://${domain}/`,
-        algorithms: 'RS256',
+        algorithms: ['RS256'],
         maxAge: maxAllowedAge
     }
 
@@ -345,12 +351,16 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 
     //console.log(`jwt.verify id_token: ${id_token} against signature: ${JSON.stringify(signature)}`);
 
+    return jwt.verify(id_token, getKey, signature);
+
+/*
     return new Promise((resolve, reject) => {
         jwt.verify(id_token, getKey, signature, (err, decoded) => {
             if (err) reject(err);
             else resolve(decoded);
         });
     });
+*/
 
 }
 
