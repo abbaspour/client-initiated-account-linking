@@ -7,9 +7,8 @@ _jest.mock('jwks-rsa');
 _jest.mock('auth0');
 
 _jest.mock('jsonwebtoken', () => ({
-    verify: _jest.fn().mockImplementation(() => {
-        //throw new Error('Invalid token');
-        return {sub: 'auth0|123', auth_time: Math.floor(Date.now() / 1000)};
+    verify: _jest.fn().mockImplementation((id_token, getKey, signature, cb) => {
+        return cb(null, {sub: 'auth0|123', auth_time: Math.floor(Date.now() / 1000)});
     }),
 }));
 
@@ -134,8 +133,8 @@ describe('onExecutePostLogin', () => {
     it('should exit if id_token_hint invalid', async () => {
         const jwt = require('jsonwebtoken');
 
-        jwt.verify.mockImplementation(() => {
-            throw new TokenExpiredError('jwt expired');
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(new Error('jwt expired'));
         });
 
         await onExecutePostLogin(mockEvent, mockApi);
@@ -146,8 +145,8 @@ describe('onExecutePostLogin', () => {
 
         const jwt = require('jsonwebtoken');
 
-        jwt.verify.mockImplementation(() => {
-            return {sub: 'auth0|321', auth_time: Math.floor(Date.now() / 1000)};
+        jwt.verify.mockImplementation(function (id_token, getKey, signature, cb) {
+            return cb(null, {sub: 'auth0|321', auth_time: Math.floor(Date.now() / 1000)});
         });
 
         await onExecutePostLogin(mockEvent, mockApi);

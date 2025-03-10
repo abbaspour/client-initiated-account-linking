@@ -12,4 +12,4 @@ node_modules: package.json
 clean:
 	rm -rf node_modules
 
-.PHONY: all clean
+.PHONY: all clean test lint

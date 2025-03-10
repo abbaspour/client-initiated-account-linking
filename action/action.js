@@ -133,20 +133,20 @@ exports.onExecutePostLogin = async (event, api) => {
 
 
     // todo: PKCE
-/*
-    const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
+    /*
+        const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
 
-    const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
-        redirectUri: `https://${domain}/continue`,
-        nonce,
-        responseType: 'code',
-        prompt: 'login',
-        max_age: 0,
-        connection: target_connection,
-        login_hint: event.user.email,
-        scope: 'openid profile email ' + requested_connection_scopes
-    });
-*/
+        const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
+            redirectUri: `https://${domain}/continue`,
+            nonce,
+            responseType: 'code',
+            prompt: 'login',
+            max_age: 0,
+            connection: target_connection,
+            login_hint: event.user.email,
+            scope: 'openid profile email ' + requested_connection_scopes
+        });
+    */
     const nestedAuthorizeURL = buildAuthorizeUrl(domain, {
         client_id: clientId,
         redirect_uri: `https://${domain}/continue`,
@@ -361,19 +361,12 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
         signature.client_id = client_id;
     }
 
-    //console.log(`jwt.verify id_token: ${id_token} against signature: ${JSON.stringify(signature)}`);
-
-    return jwt.verify(id_token, getKey, signature);
-
-    /*
-        return new Promise((resolve, reject) => {
-            jwt.verify(id_token, getKey, signature, (err, decoded) => {
-                if (err) reject(err);
-                else resolve(decoded);
-            });
+    return new Promise((resolve, reject) => {
+        jwt.verify(id_token, getKey, signature, (err, decoded) => {
+            if (err) reject(err);
+            else resolve(decoded);
         });
-    */
-
+    });
 }
 
 async function exchange(domain, client_id, client_secret, code, redirect_uri) {
