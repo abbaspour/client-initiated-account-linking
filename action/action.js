@@ -58,7 +58,7 @@ exports.onExecutePostLogin = async (event, api) => {
     const {identifier: resource_server} = event?.resource_server;
 
     if (resource_server !== linking_resource_server) {
-        return noop(`resource-server invalid: ${resource_server}`);
+        return noop(`invalid resource-server: ${resource_server}`);
     }
 
     const {requested_scopes} = event?.transaction;
@@ -133,20 +133,6 @@ exports.onExecutePostLogin = async (event, api) => {
 
 
     // todo: PKCE
-    /*
-        const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
-
-        const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
-            redirectUri: `https://${domain}/continue`,
-            nonce,
-            responseType: 'code',
-            prompt: 'login',
-            max_age: 0,
-            connection: target_connection,
-            login_hint: event.user.email,
-            scope: 'openid profile email ' + requested_connection_scopes
-        });
-    */
     const nestedAuthorizeURL = buildAuthorizeUrl(domain, {
         client_id: clientId,
         redirect_uri: `https://${domain}/continue`,
@@ -163,57 +149,66 @@ exports.onExecutePostLogin = async (event, api) => {
     api.redirect.sendUserTo(nestedAuthorizeURL);
 };
 
-function buildAuthorizeUrl(domain, params) {
-    const qs = params =>
-        Object.keys(params)
-            .map(k => `${k}=${encodeURIComponent(params[k])}`)
-            .join("&");
-
-    const queryString = qs(params);
-
-    return `https://${domain}/authorize?${queryString}`;
-}
-
 exports.onContinuePostLogin = async (event, api) => {
     //console.log(`onContinuePostLogin event: ${JSON.stringify(event)}`);
 
-    const {domain} = event.secrets || {};
+    const noop = api.noop || function (x) { // facilitate unit testing
+        console.log(x);
+    };
+
+    const {domain, client_id} = event.secrets || {};
 
     const {code} = event.request.query;
-    const client_id = event.secrets.clientId;
+    if (!code) {
+        return api.access.deny(`missing code`);
+    }
 
     const {identifier: resource_server} = event?.resource_server;
-    console.log(`resource_server: ${resource_server}`);
 
     if (resource_server !== linking_resource_server) {
-        console.log(`skip since resource-server is not target ${linking_resource_server}: ${resource_server}`);
-        return;
+        return api.access.deny(`invalid resource-server: ${resource_server}`);
     }
 
     const {requested_scopes} = event?.transaction;
 
     if (!Array.isArray(requested_scopes)) {
-        console.log(`skip since scopes not valid`);
-        return;
+        return api.access.deny('requested scopes invalid');
     }
 
-    const requestLinkAccountScope = requested_scopes.includes('link_account');
-    const requestUnlinkAccountScope = requested_scopes.includes('unlink_account');
+    const is_link_request = requested_scopes.includes('link_account');
+    const is_unlink_request = requested_scopes.includes('unlink_account');
 
-    if (requestLinkAccountScope && requestUnlinkAccountScope) {
-        console.log(`skip since both link_account and unlink_account scopes present`);
-        return;
+    if (!(is_link_request || is_unlink_request)) {
+        return api.access.deny('no link_account or unlink_account scopes requested');
     }
 
-    const id_token_str = await exchange(domain, client_id, event.secrets.clientSecret, code, `https://${domain}/continue`);
-    console.log(`id_token string from exchange: ${id_token_str}`);
+    if (is_link_request && is_unlink_request) {
+        return api.access.deny('both link_account and unlink_account requested');
+    }
+
+    let id_token_str;
+    try {
+        id_token_str = await exchange(domain, client_id, event.secrets.clientSecret, code, `https://${domain}/continue`);
+    } catch (e) {
+        console.log('account linking continue exchange error', e);
+        return api.access.deny('error in exchange');
+    }
+
+    console.log(`account linking continue id_token string from exchange: ${id_token_str}`);
 
     if (!id_token_str) {
-        api.access.deny('error in exchange');
-        return;
+        return api.access.deny('error in exchange');
     }
 
-    const id_token = await verifyIdToken(api, id_token_str, domain, client_id);
+    let id_token;
+
+    try {
+        id_token = await verifyIdToken(api, id_token_str, domain, client_id);
+    } catch (e) {
+        console.log('account linking continue id_token verify error', e);
+        return api.access.deny('id_token verification failed');
+
+    }
 
     /* optional check: If you are only linking users with the same email, you can uncomment this
     if (event.user.email !== id_token.email) {
@@ -224,17 +219,15 @@ exports.onContinuePostLogin = async (event, api) => {
 
     console.log(`id_token for after continue exchange: ${JSON.stringify(id_token)}`);
 
-    if (requestLinkAccountScope) {
+    if (is_link_request) {
 
         if (id_token.nonce !== makeNonce(event)) {
-            console.log(`skipped linking, nonce mismatch`);
-            return;
+            return api.access.deny('nonce mismatch');
         }
 
         // optional check: upstream to supply verified emails only
         if (id_token.email_verified !== true) {
-            console.log(`skipped linking, email not verified in nested tx user: ${id_token.email}`);
-            return;
+            return noop(`email not verified for nested tx user: ${id_token.sub}`);
         }
 
         await linkAndMakePrimary(event, api, id_token.sub);
@@ -252,6 +245,14 @@ exports.onContinuePostLogin = async (event, api) => {
         // TODO: delete passwordless connection
     }
 };
+
+function buildAuthorizeUrl(domain, params) {
+    const queryString = Object.keys(params)
+        .map(k => `${k}=${encodeURIComponent(params[k])}`)
+        .join("&");
+
+    return `https://${domain}/authorize?${queryString}`;
+}
 
 async function linkAndMakePrimary(event, api, upstream_sub) {
     //console.log(`linking ${event.user.user_id} under ${primary_sub}`);
@@ -370,14 +371,14 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 }
 
 async function exchange(domain, client_id, client_secret, code, redirect_uri) {
-    console.log(`exchanging code: ${code}`);
+    // console.log(`exchanging code: ${code}`);
 
     const {data: {id_token}} = await axios({
         method: 'post', url: `https://${domain}/oauth/token`, data: {
             client_id, client_secret, code, grant_type: 'authorization_code', redirect_uri
         }, headers: {
             'Content-Type': 'application/json'
-        }, timeout: 5000 // 5 sec
+        }, timeout: 5000 // 5 sec TODO configurable
     });
 
     return id_token;

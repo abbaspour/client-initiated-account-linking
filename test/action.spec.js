@@ -83,7 +83,7 @@ describe('onExecutePostLogin', () => {
     it('should exit if not expected resource-server', async () => {
         mockEvent.resource_server.identifier = 'my-other-api';
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('resource-server invalid: my-other-api');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid resource-server: my-other-api');
     });
 
     it('should exit if empty scopes', async () => {
@@ -193,3 +193,161 @@ describe('onExecutePostLogin', () => {
 
 });
 
+describe('onContinuePostLogin', () => {
+    let mockEvent;
+    let mockApi;
+    let onContinuePostLogin;
+
+    beforeEach(() => {
+        // Reset the mocks before each test
+        _jest.resetModules();
+
+        onContinuePostLogin = require('../action/action').onContinuePostLogin;
+
+        // Mock event and API objects
+        mockEvent = {
+            transaction: {
+                protocol: 'oidc-protocol',
+                id: 'tx-id',
+                requested_scopes: ['link_account']
+            },
+            connection: {
+                strategy: 'custom-strategy',
+            },
+            user: {
+                identities: [],
+                user_id: 'auth0|123',
+                email: 'test@example.com',
+            },
+            client: {
+                client_id: 'testClientId',
+            },
+            secrets: {
+                domain: 'test.auth0.com',
+                clientId: 'companionClientId'
+            },
+            resource_server: {
+                identifier: 'my-account'
+            },
+            request: {
+                ip: '1.2.3.4',
+                query: {
+                    code: "authorization-code",
+                    state: "internal-state"
+                },
+            },
+        };
+
+        mockApi = {
+            redirect: {
+                sendUserTo: _jest.fn(),
+            },
+            access: {
+                deny: _jest.fn(),
+            },
+            noop: _jest.fn()
+        };
+    });
+
+    it('continue should exit if code missing', async () => {
+        delete mockEvent.request.query.code;
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('missing code');
+    });
+
+    it('continue should exit if not expected resource-server', async () => {
+        mockEvent.resource_server.identifier = 'my-other-api';
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid resource-server: my-other-api');
+    });
+
+    it('continue should exit if empty scopes', async () => {
+        mockEvent.transaction.requested_scopes = null;
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('requested scopes invalid');
+    });
+
+    it('continue should exit if scope not link or unlink', async () => {
+        mockEvent.transaction.requested_scopes = ['some-other-scope'];
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('no link_account or unlink_account scopes requested');
+    });
+
+    it('continue should exit if both link and unlink requested', async () => {
+        mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('both link_account and unlink_account requested');
+    });
+
+    it('continue should exit if exchange fails', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(function () {
+            throw new Error('timeout');
+        });
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error in exchange');
+    });
+
+    it('continue should exit if exchange returns invalid data', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(() => 'garbage');
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error in exchange');
+    });
+
+    it('continue should exit if exchange returns invalid id_token', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(new Error('jwt expired'));
+        });
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('id_token verification failed');
+    });
+
+    it('continue should exit if linking returns invalid nonce', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|123', nonce: 'some-nonce'});
+        });
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('nonce mismatch');
+    });
+
+    it('continue should exit if email is not verified', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|123', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: false});
+        });
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith(`email not verified for nested tx user: auth0|123`);
+    });
+
+});
