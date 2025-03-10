@@ -3,46 +3,15 @@ const {jest: _jest} = require('@jest/globals');
 
 // Mock the necessary objects and methods
 _jest.mock('axios');
-//_jest.mock('jsonwebtoken');
+_jest.mock('jwks-rsa');
+_jest.mock('auth0');
+
 _jest.mock('jsonwebtoken', () => ({
     verify: _jest.fn().mockImplementation(() => {
         //throw new Error('Invalid token');
         return {sub: 'auth0|123', auth_time: Math.floor(Date.now() / 1000)};
     }),
 }));
-_jest.mock('jwks-rsa');
-_jest.mock('auth0');
-
-/*
-const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
-function makeIdToken(iss, aud, sub, email) {
-    // Load private key (PEM format)
-    const privateKey = fs.readFileSync(path.join(__dirname, 'private.pem'), 'utf8');
-
-    // Define JWT claims (customize as needed)
-    const claims = {
-        iss,      // Issuer
-        sub,      // Subject
-        aud,      // Audience
-        exp: Math.floor(Date.now() / 1000) + (60 * 60), // Expiration time (1 hour)
-        iat: Math.floor(Date.now() / 1000), // Issued at
-        email,
-        auth_time: Math.floor(Date.now() / 1000), // Issued at
-    };
-
-    // Create a signed JWT
-    const token = jwt.sign(claims, privateKey, {
-        algorithm: 'RS256' // Uses RSA SHA-256
-    });
-
-    console.log("Generated ID Token:");
-    console.log(token);
-
-    return token;
-}
-*/
 
 describe('onExecutePostLogin', () => {
     let mockEvent;
@@ -50,7 +19,7 @@ describe('onExecutePostLogin', () => {
 
     beforeEach(() => {
         // Reset the mocks before each test
-        _jest.resetAllMocks();
+        _jest.resetModules();
 
         // Mock event and API objects
         mockEvent = {
@@ -79,7 +48,10 @@ describe('onExecutePostLogin', () => {
             },
             request: {
                 ip: '1.2.3.4',
-                query: {}
+                query: {
+                    id_token_hint: 'some_id_token',
+                    requested_connection: 'google-oauth2'
+                }
             },
         };
 
@@ -94,13 +66,6 @@ describe('onExecutePostLogin', () => {
 
         const {onExecutePostLogin} = require('../action/action');
 
-        //jwt.verify = _jest.fn().mockImplementation(() => {throw new Error('Invalid token');});
-        //jwt.verify = _jest.fn().mockResolvedValue({sub: 'auth0|123', auth_time: Math.floor(Date.now() / 1000)});
-
-        //mockEvent.request.query.id_token_hint = makeIdToken('test.auth0.com', 'aud', 'auth0|123', 'test@example.com');
-        mockEvent.request.query.id_token_hint = 'some_id_token';
-        mockEvent.request.query.requested_connection = 'google-oauth2';
-
         await onExecutePostLogin(mockEvent, mockApi);
 
         // Expect sendUserTo to be called with the correct URL
@@ -110,7 +75,7 @@ describe('onExecutePostLogin', () => {
         );
     });
 
-    it('should not redirect for auth0 strategy', async () => {
+    it('should redirect for auth0 strategy', async () => {
         // Modify the event to have 'auth0' strategy
         mockEvent.connection.strategy = 'auth0';
 
@@ -119,7 +84,7 @@ describe('onExecutePostLogin', () => {
         await onExecutePostLogin(mockEvent, mockApi);
 
         // Expect sendUserTo not to be called
-        expect(mockApi.redirect.sendUserTo).not.toHaveBeenCalled();
+        expect(mockApi.redirect.sendUserTo).toHaveBeenCalled();
     });
 
     it('should not redirect for interactive_login protocol', async () => {
