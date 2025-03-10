@@ -9,7 +9,6 @@
  * @param {PostLoginAPI} api - Interface whose methods can be used to change the behavior of the login.
  */
 
-//const auth0 = require('auth0-js'); // why node.js sdk doesn't have buildAuthorizeUrl?
 const {ManagementClient, AuthenticationClient} = require('auth0');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');

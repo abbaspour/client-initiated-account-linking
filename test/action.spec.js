@@ -1,6 +1,5 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
-//const {onExecutePostLogin} = require("../action/action");
 
 // Mock the necessary objects and methods
 _jest.mock('axios');
