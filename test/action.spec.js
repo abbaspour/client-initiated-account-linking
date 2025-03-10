@@ -1,5 +1,6 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
+//const {onExecutePostLogin} = require("../action/action");
 
 // Mock the necessary objects and methods
 _jest.mock('axios');
@@ -16,10 +17,13 @@ _jest.mock('jsonwebtoken', () => ({
 describe('onExecutePostLogin', () => {
     let mockEvent;
     let mockApi;
+    let onExecutePostLogin;
 
     beforeEach(() => {
         // Reset the mocks before each test
         _jest.resetModules();
+
+        onExecutePostLogin = require('../action/action').onExecutePostLogin;
 
         // Mock event and API objects
         mockEvent = {
@@ -59,19 +63,109 @@ describe('onExecutePostLogin', () => {
             redirect: {
                 sendUserTo: _jest.fn(),
             },
+            access: {
+                deny: _jest.fn(),
+            },
+            noop: _jest.fn()
         };
     });
 
-    it('should redirect to nestedAuthorizeURL', async () => {
+    it('should exit for non-interactive ropg protocols', async () => {
+        mockEvent.transaction.protocol = 'oauth2-resource-owner';
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith(`protocol is not interactive: oauth2-resource-owner`);
+    });
 
-        const {onExecutePostLogin} = require('../action/action');
+    it('should exit if running internal transaction', async () => {
+        mockEvent.client.client_id = mockEvent.secrets.clientId;
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('running inner transaction');
+    });
+
+    it('should exit if not expected resource-server', async () => {
+        mockEvent.resource_server.identifier = 'my-other-api';
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('resource-server invalid: my-other-api');
+    });
+
+    it('should exit if empty scopes', async () => {
+        mockEvent.transaction.requested_scopes = null;
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('requested scopes invalid');
+    });
+
+    it('should exit if scope not link or unlink', async () => {
+        mockEvent.transaction.requested_scopes = ['some-other-scope'];
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('no link_account or unlink_account scopes requested');
+    });
+
+    it('should exit if both link and unlink requested', async () => {
+        mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('both link_account and unlink_account requested');
+    });
+
+    it('should exit if no id_token_hint passed', async () => {
+        delete mockEvent.request.query.id_token_hint;
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('no id_token_hint present');
+    });
+
+    it('should exit if no requested_connection passed', async () => {
+        delete mockEvent.request.query.requested_connection;
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('no requested_connection requested');
+    });
+
+    it('should exit link if user is already linked to requested connection', async () => {
+        mockEvent.user.identities.push({
+            connection: 'google-oauth2'
+        });
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} has profile against connection: ${mockEvent.request.query.requested_connection}`);
+    });
+
+    it('should exit unlink if user is does not have link to requested connection', async () => {
+        mockEvent.transaction.requested_scopes[0] = 'unlink_account'
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} does not have profile against connection: ${mockEvent.request.query.requested_connection}`);
+    });
+
+    it('should exit if id_token_hint invalid', async () => {
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation(() => {
+            throw new TokenExpiredError('jwt expired');
+        });
+
+        await onExecutePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('id_token_hint verification failed');
+    });
+
+    it('should exit if id_token_hint sub mismatch', async () => {
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation(() => {
+            return {sub: 'auth0|321', auth_time: Math.floor(Date.now() / 1000)};
+        });
+
+        await onExecutePostLogin(mockEvent, mockApi);
+
+        expect(mockApi.access.deny).toHaveBeenCalledWith('sub mismatch');
+        expect(mockApi.noop).toHaveBeenCalledWith(`sub mismatch. expected ${mockEvent.user.user_id} received auth0|321`);
+    });
+
+
+    it('should redirect to nestedAuthorizeURL', async () => {
 
         await onExecutePostLogin(mockEvent, mockApi);
 
         // Expect sendUserTo to be called with the correct URL
         expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
             // eslint-disable-next-line
-            expect.stringContaining("https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email%20undefined&auth0Client=eyJuYW1lIjoiYXV0aDAuanMiLCJ2ZXJzaW9uIjoiOS4yOC4wIn0%3D")
+            expect.stringContaining('https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email')
         );
     });
 
@@ -79,7 +173,7 @@ describe('onExecutePostLogin', () => {
         // Modify the event to have 'auth0' strategy
         mockEvent.connection.strategy = 'auth0';
 
-        const {onExecutePostLogin} = require('../action/action');
+        //const {onExecutePostLogin} = require('../action/action');
 
         await onExecutePostLogin(mockEvent, mockApi);
 
@@ -91,7 +185,7 @@ describe('onExecutePostLogin', () => {
         // Modify the event to have 'interactive_login' protocol
         mockEvent.transaction.protocol = 'interactive_login';
 
-        const {onExecutePostLogin} = require('../action/action');
+        //const {onExecutePostLogin} = require('../action/action');
 
         await onExecutePostLogin(mockEvent, mockApi);
 
