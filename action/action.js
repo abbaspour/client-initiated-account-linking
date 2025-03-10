@@ -1,11 +1,14 @@
 /**
  * Handler that will be called during the execution of a PostLogin flow.
  *
+ * Author: Amin Abbaspour
+ * Date: 2025-01-02
+ * License: MIT (https://github.com/auth0/client-initiated-account-linking/blob/main/LICENSE)
+ *
  * @param {Event} event - Details about the user and the context in which they are logging in.
  * @param {PostLoginAPI} api - Interface whose methods can be used to change the behavior of the login.
  */
 
-const auth0 = require('auth0-js'); // why node.js sdk doesn't have buildAuthorizeUrl?
 const {ManagementClient, AuthenticationClient} = require('auth0');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
@@ -26,11 +29,14 @@ const makeNonce = (event) => crypto.createHash('sha256').update(event.user.user_
 
 exports.onExecutePostLogin = async (event, api) => {
 
+    const noop = api.noop || function (x) { // facilitate unit testing
+        console.log(x);
+    };
+
     const protocol = event?.transaction?.protocol || 'unknown';
 
     if (!interactive_login.test(protocol)) {
-        console.log(`skip since protocol is not interactive: ${protocol}`);
-        return;
+        return noop(`protocol is not interactive: ${protocol}`);
     }
 
     console.log(`protocol: ${protocol}, client_id: ${event.client.client_id}`);
@@ -38,7 +44,6 @@ exports.onExecutePostLogin = async (event, api) => {
     const {clientId} = event.secrets || {};
 
     if (event.client.client_id === clientId) {
-        //console.log(`running inner transaction for event: ${JSON.stringify(event)}`);
 
         if (canPromptMfa(event.user) && !hasDoneMfa(event)) {
             console.log('mfa required in inner tx.')
@@ -47,51 +52,42 @@ exports.onExecutePostLogin = async (event, api) => {
             console.log('mfa not required in inner tx.')
         }
 
-        return;
+        return noop('running inner transaction');
     }
 
     const {identifier: resource_server} = event?.resource_server;
-    console.log(`resource_server: ${resource_server}`);
 
     if (resource_server !== linking_resource_server) {
-        console.log(`skip since resource-server is not target ${linking_resource_server}: ${resource_server}`);
-        return;
+        return noop(`resource-server invalid: ${resource_server}`);
     }
 
     const {requested_scopes} = event?.transaction;
 
     if (!Array.isArray(requested_scopes)) {
-        console.log(`skip since scopes not invalid`);
-        return;
+        return noop('requested scopes invalid');
     }
 
-    const requestLinkAccountScope = requested_scopes.includes('link_account');
-    const requestUnlinkAccountScope = requested_scopes.includes('unlink_account');
+    const is_link_request = requested_scopes.includes('link_account');
+    const is_unlink_request = requested_scopes.includes('unlink_account');
 
-    if (!(requestLinkAccountScope || requestUnlinkAccountScope)) {
-        console.log(`skip since no link_account or unlink_account scopes present`);
-        return;
+    if (!(is_link_request || is_unlink_request)) {
+        return noop('no link_account or unlink_account scopes requested');
     }
 
-    if (requestLinkAccountScope && requestUnlinkAccountScope) {
-        api.access.deny("Both link_account and unlink_account are requested");
-        return;
+    if (is_link_request && is_unlink_request) {
+        return noop('both link_account and unlink_account requested');
     }
-
 
     const {id_token_hint} = event?.request?.query;
-    console.log(`id_token_hint: ${id_token_hint}`);
 
     if (!id_token_hint) {
-        console.log(`skip since no id_token_hint present`);
-        return;
+        return noop('no id_token_hint present');
     }
 
     const {requested_connection, requested_connection_scopes} = event.request.query;
 
     if (!requested_connection) {
-        console.log(`skip since no requested_connection defined`);
-        return;
+        return noop('no requested_connection requested');
     }
 
     let target_connection;
@@ -99,47 +95,47 @@ exports.onExecutePostLogin = async (event, api) => {
 
     const link_with_req_conn = linkedIdentityWithConnection(event.user, requested_connection);
 
-    if (requestLinkAccountScope) {
-        // already has a link with upstream connection ?
-        if (link_with_req_conn.length > 0) {
-            console.log(`user already has a linked profile against request connection: ${requested_connection}`);
-            return;
+    if (is_link_request) {
+        if (link_with_req_conn.length > 0) { // already has a link with upstream connection ?
+            return noop(`user ${event.user.user_id} has profile against connection: ${requested_connection}`);
         }
         target_connection = requested_connection;
         nonce = makeNonce(event);
     } else {
         if (!link_with_req_conn || link_with_req_conn.length === 0) {
-            console.log(`user does not have a linked profile against request connection: ${requested_connection}`);
-            return;
+            return noop(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
         }
         target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
-        nonce = link_with_req_conn[0].user_id;
+        nonce = link_with_req_conn[0].user_id; // TODO: this is unsafe
     }
 
     const {domain} = event.secrets || {};
 
-    const incoming_token = await verifyIdToken(api, id_token_hint, domain); // todo: optional auth_time claim check
+    console.log(`account linking verifying id_token_hint: ${id_token_hint}`);
 
-    if (incoming_token.sub !== event?.user?.user_id) {
-        api.access.deny('sub mismatch');
-        api.session.revoke('sub mismatch');
-        console.log(`logging out due to sub mismatch. expected ${event?.user?.user_id} received: ${incoming_token.sub}`);
-        return;
+    let id_token;
+
+    try {
+        id_token = await verifyIdToken(api, id_token_hint, domain); // todo: optional auth_time claim check
+    } catch (e) {
+        console.log('account linking error during id_token verification', e);
+        return noop('id_token_hint verification failed');
     }
 
-    //console.log(`running outer transaction for event: ${JSON.stringify(event, null, 2)}`);
+    console.log(`account linking incoming id_token decoded: ${JSON.stringify(id_token)}`);
 
-    /*
-    // nonce when doing PAR
-    const nonce = event.transaction.linking_id;
+    if (id_token.sub !== event?.user?.user_id) {
+        api.access.deny('sub mismatch');
+        return noop(`sub mismatch. expected ${event?.user?.user_id} received ${id_token.sub}`);
+    }
+
     console.log(`nonce for inner tx: ${nonce}`);
-    */
 
-    console.log(`nonce for inner tx: ${nonce}`);
-
-    const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
 
     // todo: PKCE
+/*
+    const authClient = new auth0.Authentication({domain, clientID: event.secrets.clientId});
+
     const nestedAuthorizeURL = authClient.buildAuthorizeUrl({
         redirectUri: `https://${domain}/continue`,
         nonce,
@@ -150,11 +146,33 @@ exports.onExecutePostLogin = async (event, api) => {
         login_hint: event.user.email,
         scope: 'openid profile email ' + requested_connection_scopes
     });
+*/
+    const nestedAuthorizeURL = buildAuthorizeUrl(domain, {
+        client_id: clientId,
+        redirect_uri: `https://${domain}/continue`,
+        nonce,
+        response_type: 'code',
+        prompt: 'login',
+        max_age: 0,
+        connection: target_connection,
+        login_hint: event.user.email,
+        scope: 'openid profile email ' + requested_connection_scopes ?? ''
+    });
 
-    console.log(`redirecting to ${nestedAuthorizeURL}`);
+    console.log(`account linking redirecting to ${nestedAuthorizeURL}`);
     api.redirect.sendUserTo(nestedAuthorizeURL);
 };
 
+function buildAuthorizeUrl(domain, params) {
+    const qs = params =>
+        Object.keys(params)
+            .map(k => `${k}=${encodeURIComponent(params[k])}`)
+            .join("&");
+
+    const queryString = qs(params);
+
+    return `https://${domain}/authorize?${queryString}`;
+}
 
 exports.onContinuePostLogin = async (event, api) => {
     //console.log(`onContinuePostLogin event: ${JSON.stringify(event)}`);
@@ -331,7 +349,7 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 
     const signature = {
         issuer: `https://${domain}/`,
-        algorithms: 'RS256',
+        algorithms: ['RS256'],
         maxAge: maxAllowedAge
     }
 
@@ -345,12 +363,16 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
 
     //console.log(`jwt.verify id_token: ${id_token} against signature: ${JSON.stringify(signature)}`);
 
-    return new Promise((resolve, reject) => {
-        jwt.verify(id_token, getKey, signature, (err, decoded) => {
-            if (err) reject(err);
-            else resolve(decoded);
+    return jwt.verify(id_token, getKey, signature);
+
+    /*
+        return new Promise((resolve, reject) => {
+            jwt.verify(id_token, getKey, signature, (err, decoded) => {
+                if (err) reject(err);
+                else resolve(decoded);
+            });
         });
-    });
+    */
 
 }
 
