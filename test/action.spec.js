@@ -1,9 +1,8 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
-const axios = require("axios");
-const jwt = require("jsonwebtoken");
 
 const mockLinkMethod = _jest.fn();
+const mockUnlinkMethod = _jest.fn();
 
 // Mock the necessary objects and methods
 _jest.mock('axios');
@@ -11,7 +10,8 @@ _jest.mock('jwks-rsa');
 _jest.mock('auth0', () => ({
     ManagementClient: _jest.fn().mockReturnValue({
         users: {
-            link: mockLinkMethod
+            link: mockLinkMethod,
+            unlink: mockUnlinkMethod
         }
     })
 }));
@@ -446,8 +446,66 @@ describe('onContinuePostLogin', () => {
 
         await onContinuePostLogin(mockEvent, mockApi);
 
-        expect(mockApi.access.deny).toHaveBeenCalledWith('error during linking')
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error linking')
     });
 
+    it('continue should unlink for valid input', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|123', nonce: 'google-oauth2|abc'});
+        });
+
+        mockApi.cache.get.mockReturnValue({ value: 'some-m2m-token'});
+
+        mockEvent.user.identities.push({
+            provider: 'google-oauth2',
+            connection: 'google-oauth2',
+            user_id: 'abc'
+        });
+
+        mockEvent.transaction.requested_scopes = ['unlink_account']
+
+        await onContinuePostLogin(mockEvent, mockApi);
+
+        expect(mockUnlinkMethod).toHaveBeenCalledWith({id: 'auth0|123', user_id: 'abc', provider: 'google-oauth2'});
+    });
+
+    it('continue should exit if unlink throws error', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|123', nonce: 'google-oauth2|abc'});
+        });
+
+        mockApi.cache.get.mockReturnValue({ value: 'some-m2m-token'});
+
+        mockEvent.user.identities.push({
+            provider: 'google-oauth2',
+            connection: 'google-oauth2',
+            user_id: 'abc'
+        });
+
+        mockEvent.transaction.requested_scopes = ['unlink_account']
+
+        mockUnlinkMethod.mockImplementation(() => { throw new Error()});
+
+        await onContinuePostLogin(mockEvent, mockApi);
+
+        expect(mockUnlinkMethod).toHaveBeenCalledWith({id: 'auth0|123', user_id: 'abc', provider: 'google-oauth2'});
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error unlinking')
+    });
 
 });

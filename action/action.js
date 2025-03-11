@@ -107,7 +107,7 @@ exports.onExecutePostLogin = async (event, api) => {
             return api.access.deny(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
         }
         target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
-        nonce = link_with_req_conn[0].user_id; // TODO: this is unsafe
+        nonce = `${target_connection}|${link_with_req_conn[0].user_id}`; // TODO: this is unsafe
     }
 
     const {domain} = event.secrets || {};
@@ -155,10 +155,6 @@ exports.onExecutePostLogin = async (event, api) => {
 
 exports.onContinuePostLogin = async (event, api) => {
     //console.log(`onContinuePostLogin event: ${JSON.stringify(event)}`);
-
-    const noop = api.noop || function (x) { // facilitate unit testing
-        console.log(x);
-    };
 
     const {domain, clientId, clientSecret} = event.secrets || {};
 
@@ -291,37 +287,34 @@ async function getManagementClient(event, api) {
     return new ManagementClient({domain, token});
 }
 
+function splitUserId(upstream_sub) {
+    const firstPipeIndex = upstream_sub.indexOf('|');
+    return [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
+}
+
 async function linkAndMakePrimary(event, api, upstream_sub) {
-    //console.log(`linking ${event.user.user_id} under ${primary_sub}`);
-
     const client = await getManagementClient(event, api);
-
     const {user_id, provider} = event.user.identities[0];
 
     // Have either A or B
 
     // (A) this block links current user to upstream user, making this user secondary
-    /*
-    try {
-        await client.users.link({id: upstream_sub}, {user_id, provider});
-        console.log(`link successful ${upstream_sub} to ${user_id} of provider: ${provider}`);
-        api.authentication.setPrimaryUser(upstream_sub);
-        console.log(`changed primary from ${event.user.user_id} to ${primary_sub}`);
-    } catch (err) {
-        console.log(`unable to link, no changes. error: ${JSON.stringify(err)}`);
-        return;
-    }
-    */
-
     // (B) this block links current user to upstream user, keeping this user primary
+
+/*
     const firstPipeIndex = upstream_sub.indexOf('|');
     const [up_provider, up_user_id] = [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
+*/
+    const [up_provider, up_user_id] = splitUserId(upstream_sub);
+
+
     try {
         await client.users.link({id: `${provider}|${user_id}`}, {user_id: up_user_id, provider: up_provider});
         console.log(`link successful current user ${provider}|${user_id} to ${up_user_id} of provider: ${up_provider}`);
+        // api.authentication.setPrimaryUser(upstream_sub);
     } catch (err) {
         console.log(`unable to link, no changes. error: ${JSON.stringify(err)}`);
-        return api.access.deny('error during linking');
+        return api.access.deny('error linking');
     }
 }
 
@@ -390,34 +383,34 @@ async function exchange(domain, client_id, client_secret, code, redirect_uri) {
     return id_token;
 }
 
-async function unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink) {
+async function unlink(event, api, user_id) {
 
-    //console.log(`searching for ${user_id_to_unlink} in event.user.identities for: ${JSON.stringify(event.user.identities)}`);
+    const [connection, user_id_to_unlink] = splitUserId(user_id);
 
     // Run the unlink function
-    const unlinkIdentities = event.user.identities.filter(x => /*x.connection === connection_to_unlink && */ x.user_id === user_id_to_unlink);
+    const unlinkIdentities = event.user.identities.filter(x => x.connection === connection &&  x.user_id === user_id_to_unlink);
 
     if (unlinkIdentities.length !== 1) {
-        console.log(`cannot find single identity with user_id: ${user_id_to_unlink}`);
-        return;
+        return api.access.deny('target identity not found');
     }
 
     const primary_id = event.user.user_id;
-    const connection = unlinkIdentities[0].provider;
+    //const connection = unlinkIdentities[0].provider;
     const unlink_id = unlinkIdentities[0].user_id;
 
-    console.log(`unlinkIdentity: ` + primary_id, connection, unlink_id);
+    console.log(`client initiated unlink Identity: ` + primary_id, connection, unlink_id);
 
     const client = await getManagementClient(event, api);
 
     try {
-        const response = await client.users.unlink({
+        await client.users.unlink({
             id: primary_id,       // Primary user ID (who has linked accounts)
             provider: connection, // e.g., "google-oauth2"
             user_id: unlink_id,   // ID of the linked account
         });
         console.log(`successfully unlinked identity ${connection}|${unlink_id} from primary: ${primary_id}`);
-    } catch (error) {
-        console.error("error unlinking identity:", error.response?.data || error);
+    } catch (err) {
+        console.log(`unable to unlink, no changes. error: ${JSON.stringify(err)}`);
+        api.access.deny('error unlinking');
     }
 }
