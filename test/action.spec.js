@@ -131,7 +131,7 @@ describe('onExecutePostLogin', () => {
             connection: 'google-oauth2'
         });
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} has profile against connection: ${mockEvent.request.query.requested_connection}`);
+        expect(mockApi.access.deny).toHaveBeenCalledWith(`user has profile against connection ${mockEvent.request.query.requested_connection}`);
     });
 
     it('should exit unlink if user is does not have link to requested connection', async () => {

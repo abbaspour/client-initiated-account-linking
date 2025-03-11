@@ -17,7 +17,7 @@ const crypto = require('crypto');
 
 const interactive_login = new RegExp('^oidc-');
 const linking_resource_server = 'my-account';
-const maxAllowedAge = 600; // 10 minutes in seconds
+const maxAllowedAge = 3600; // 60 minutes in seconds
 
 const canPromptMfa = (user) => user.enrolledFactors && user.enrolledFactors.length > 0;
 const hasDoneMfa = (event) => event.authentication.methods.some(m => m.name === 'mfa');
@@ -98,7 +98,7 @@ exports.onExecutePostLogin = async (event, api) => {
 
     if (is_link_request) {
         if (link_with_req_conn.length > 0) { // already has a link with upstream connection ?
-            return api.access.deny(`user ${event.user.user_id} has profile against connection: ${requested_connection}`);
+            return api.access.deny(`user has profile against connection ${requested_connection}`);
         }
         target_connection = requested_connection;
         nonce = makeNonce(event);
@@ -107,7 +107,7 @@ exports.onExecutePostLogin = async (event, api) => {
             return api.access.deny(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
         }
         target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
-        nonce = `${target_connection}|${link_with_req_conn[0].user_id}`; // TODO: this is unsafe
+        nonce = `${link_with_req_conn[0].connection}|${link_with_req_conn[0].user_id}`; // TODO: this is unsafe
     }
 
     const {domain} = event.secrets || {};
@@ -387,6 +387,8 @@ async function unlink(event, api, user_id) {
 
     const [connection, user_id_to_unlink] = splitUserId(user_id);
 
+    console.log(`unlink connection: ${connection}, user_id_to_unlink: ${user_id_to_unlink}`);
+
     // Run the unlink function
     const unlinkIdentities = event.user.identities.filter(x => x.connection === connection &&  x.user_id === user_id_to_unlink);
 
@@ -395,7 +397,6 @@ async function unlink(event, api, user_id) {
     }
 
     const primary_id = event.user.user_id;
-    //const connection = unlinkIdentities[0].provider;
     const unlink_id = unlinkIdentities[0].user_id;
 
     console.log(`client initiated unlink Identity: ` + primary_id, connection, unlink_id);
