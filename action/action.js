@@ -16,7 +16,6 @@ const axios = require('axios');
 const crypto = require('crypto');
 
 const interactive_login = new RegExp('^oidc-');
-const linking_resource_server = 'my-account';
 const maxAllowedAge = 3600; // 60 minutes in seconds
 
 const canPromptMfa = (user) => user.enrolledFactors && user.enrolledFactors.length > 0;
@@ -26,6 +25,9 @@ const mapEnrolledToFactors = (user) => user.enrolledFactors.map(f => f.method ==
 } : {type: f.method});
 const makeNonce = (event) =>
     crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
+
+const SCOPES = { LINK: 'link_account', UNLINK: 'unlink_account' };
+const RESOURCE_SERVER = 'my-account';
 
 exports.onExecutePostLogin = async (event, api) => {
 
@@ -55,28 +57,11 @@ exports.onExecutePostLogin = async (event, api) => {
         return noop('running inner transaction');
     }
 
-    const {identifier: resource_server} = event?.resource_server;
-
-    if (resource_server !== linking_resource_server) {
-        return noop(`skip account linking. resource-server: ${resource_server}`);
+    if(!isValidRequest(event)) {
+        return api.noop('invalid request');
     }
 
-    const {requested_scopes} = event?.transaction;
-
-    if (!Array.isArray(requested_scopes)) {
-        return noop('requested scopes invalid');
-    }
-
-    const is_link_request = requested_scopes.includes('link_account');
-    const is_unlink_request = requested_scopes.includes('unlink_account');
-
-    if (!(is_link_request || is_unlink_request)) {
-        return noop('no link_account or unlink_account scopes requested');
-    }
-
-    if (is_link_request && is_unlink_request) {
-        return api.access.deny('both link_account and unlink_account requested');
-    }
+    const is_link_request = event?.transaction?.requested_scopes.includes(SCOPES.LINK);
 
     const {id_token_hint} = event?.request?.query;
 
@@ -107,7 +92,7 @@ exports.onExecutePostLogin = async (event, api) => {
         nonce = `${identity_with_req_conn[0].connection}|${identity_with_req_conn[0].user_id}`; // TODO: this is unsafe
     }
 
-    console.log(`account linking verifying id_token_hint: ${id_token_hint}`);
+    //console.log(`account linking verifying id_token_hint: ${id_token_hint}`);
 
     let id_token;
 
@@ -118,13 +103,13 @@ exports.onExecutePostLogin = async (event, api) => {
         return api.access.deny('id_token_hint verification failed');
     }
 
-    console.log(`account linking incoming id_token decoded: ${JSON.stringify(id_token)}`);
+    console.log(`account linking incoming id_token decoded and verified: ${id_token.sub}`);
 
     if (id_token.sub !== event?.user?.user_id) {
         return api.access.deny(`sub mismatch. expected ${event?.user?.user_id} received ${id_token.sub}`);
     }
 
-    console.log(`nonce for inner tx: ${nonce}`);
+    //console.log(`nonce for inner tx: ${nonce}`);
 
     // todo: PKCE
     const params = {
@@ -161,28 +146,11 @@ exports.onContinuePostLogin = async (event, api) => {
         return api.access.deny(`missing code`);
     }
 
-    const {identifier: resource_server} = event?.resource_server;
-
-    if (resource_server !== linking_resource_server) {
-        return api.access.deny(`invalid resource-server: ${resource_server}`);
+    if(!isValidRequest(event)) {
+        return api.access.deny('invalid request');
     }
 
-    const {requested_scopes} = event?.transaction;
-
-    if (!Array.isArray(requested_scopes)) {
-        return api.access.deny('requested scopes invalid');
-    }
-
-    const is_link_request = requested_scopes.includes('link_account');
-    const is_unlink_request = requested_scopes.includes('unlink_account');
-
-    if (!(is_link_request || is_unlink_request)) {
-        return api.access.deny('no link_account or unlink_account scopes requested');
-    }
-
-    if (is_link_request && is_unlink_request) {
-        return api.access.deny('both link_account and unlink_account requested');
-    }
+    const is_link_request = event?.transaction?.requested_scopes.includes(SCOPES.LINK);
 
     let id_token;
     try {
@@ -228,6 +196,34 @@ exports.onContinuePostLogin = async (event, api) => {
     }
 };
 
+function isValidRequest(event) {
+    const {identifier: resource_server} = event?.resource_server;
+
+    if (resource_server !== RESOURCE_SERVER) {
+        return false;
+    }
+
+    const {requested_scopes} = event?.transaction;
+
+    if (!Array.isArray(requested_scopes)) {
+        return false;
+    }
+
+    const is_link_request = requested_scopes.includes(SCOPES.LINK);
+    const is_unlink_request = requested_scopes.includes(SCOPES.UNLINK);
+
+    if (!(is_link_request || is_unlink_request)) {
+        return false;
+    }
+
+    if (is_link_request && is_unlink_request) {
+        return false;
+    }
+
+    return true;
+}
+
+
 function buildAuthorizeUrl(domain, params) {
     const queryString = Object.keys(params)
         .map(k => `${k}=${encodeURIComponent(params[k])}`)
@@ -258,7 +254,7 @@ async function getManagementClient(event, api) {
             }
             console.log('cache MIS m2m token!');
 
-            const result = api.cache.set('management-token', token, {ttl: data.expires_in * 1000});
+            const result = api.cache.set('management-token', token, {ttl: ( data.expires_in - 60) * 1000});
 
             if (result?.type === 'error') {
                 console.log('failed to set the token in the cache with error code', result.code);
@@ -285,11 +281,6 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
 
     // (A) this block links current user to upstream user, making this user secondary
     // (B) this block links current user to upstream user, keeping this user primary
-
-    /*
-        const firstPipeIndex = upstream_sub.indexOf('|');
-        const [up_provider, up_user_id] = [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
-    */
 
     try {
         await client.users.link({id: `${provider}|${user_id}`}, splitSubClaim(upstream_sub));
@@ -363,7 +354,7 @@ async function exchange(api, domain, client_id, client_secret, code, redirect_ur
         }, timeout: 5000 // 5 sec TODO configurable
     });
 
-    console.log(`account linking continue id_token string from exchange: ${id_token}`);
+    console.log(`account linking continue id_token string exchange completed`);
 
     if (!id_token) {
         throw new Error('no id_token in exchange response');

@@ -94,25 +94,25 @@ describe('onExecutePostLogin', () => {
     it('should exit if not expected resource-server', async () => {
         mockEvent.resource_server.identifier = 'my-other-api';
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('skip account linking. resource-server: my-other-api');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if empty scopes', async () => {
         mockEvent.transaction.requested_scopes = null;
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('requested scopes invalid');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if scope not link or unlink', async () => {
         mockEvent.transaction.requested_scopes = ['some-other-scope'];
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('no link_account or unlink_account scopes requested');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if both link and unlink requested', async () => {
         mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('both link_account and unlink_account requested');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if no id_token_hint passed', async () => {
@@ -298,25 +298,25 @@ describe('onContinuePostLogin', () => {
     it('continue should exit if not expected resource-server', async () => {
         mockEvent.resource_server.identifier = 'my-other-api';
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid resource-server: my-other-api');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if empty scopes', async () => {
         mockEvent.transaction.requested_scopes = null;
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('requested scopes invalid');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if scope not link or unlink', async () => {
         mockEvent.transaction.requested_scopes = ['some-other-scope'];
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('no link_account or unlink_account scopes requested');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if both link and unlink requested', async () => {
         mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('both link_account and unlink_account requested');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if exchange fails', async () => {
