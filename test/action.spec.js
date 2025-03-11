@@ -1,10 +1,20 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
+const axios = require("axios");
+const jwt = require("jsonwebtoken");
+
+const mockLinkMethod = _jest.fn();
 
 // Mock the necessary objects and methods
 _jest.mock('axios');
 _jest.mock('jwks-rsa');
-_jest.mock('auth0');
+_jest.mock('auth0', () => ({
+    ManagementClient: _jest.fn().mockReturnValue({
+        users: {
+            link: mockLinkMethod
+        }
+    })
+}));
 
 _jest.mock('jsonwebtoken', () => ({
     verify: _jest.fn().mockImplementation((id_token, getKey, signature, cb) => {
@@ -235,7 +245,12 @@ describe('onContinuePostLogin', () => {
                 strategy: 'custom-strategy',
             },
             user: {
-                identities: [],
+                identities: [
+                    {
+                        user_id: '123',
+                        provider: 'auth0'
+                    }
+                ],
                 user_id: 'auth0|123',
                 email: 'test@example.com',
             },
@@ -264,6 +279,9 @@ describe('onContinuePostLogin', () => {
             },
             access: {
                 deny: _jest.fn(),
+            },
+            cache: {
+                get: _jest.fn(),
             },
             noop: _jest.fn()
         };
@@ -367,7 +385,69 @@ describe('onContinuePostLogin', () => {
         });
 
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith(`email not verified for nested tx user: auth0|123`);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('email not verified for nested tx user: auth0|123');
     });
+
+    it('continue should exit unlink if user_id missing in id_token', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|123'});
+        });
+
+        mockEvent.transaction.requested_scopes = ['unlink_account']
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('missing user_id claim');
+    });
+
+    it('continue should link for valid input', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'google-oauth2|abc', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: true});
+        });
+
+        mockApi.cache.get.mockReturnValue({ value: 'some-m2m-token'});
+
+        await onContinuePostLogin(mockEvent, mockApi);
+
+        expect(mockLinkMethod).toHaveBeenCalledWith({id: 'auth0|123'}, {user_id: 'abc', provider: 'google-oauth2'})
+    });
+
+
+    it('continue should exit if link throws error', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'google-oauth2|abc', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: true});
+        });
+
+        mockApi.cache.get.mockReturnValue({ value: 'some-m2m-token'});
+
+        mockLinkMethod.mockImplementation(() => { throw new Error()});
+
+        await onContinuePostLogin(mockEvent, mockApi);
+
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error during linking')
+    });
+
 
 });

@@ -231,7 +231,7 @@ exports.onContinuePostLogin = async (event, api) => {
 
         // optional check: upstream to supply verified emails only
         if (id_token.email_verified !== true) {
-            return noop(`email not verified for nested tx user: ${id_token.sub}`);
+            return api.access.deny(`email not verified for nested tx user: ${id_token.sub}`);
         }
 
         await linkAndMakePrimary(event, api, id_token.sub);
@@ -240,13 +240,10 @@ exports.onContinuePostLogin = async (event, api) => {
         const user_id_to_unlink = id_token.nonce; // I know this is not great, but...
 
         if (!user_id_to_unlink) {
-            console.log(`skip unlinking since current_user_id claim not present`);
-            return;
+            return api.access.deny('missing user_id claim');
         }
 
         await unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink);
-        // TODO: kill session
-        // TODO: delete passwordless connection
     }
 };
 
@@ -258,8 +255,7 @@ function buildAuthorizeUrl(domain, params) {
     return `https://${domain}/authorize?${queryString}`;
 }
 
-async function linkAndMakePrimary(event, api, upstream_sub) {
-    //console.log(`linking ${event.user.user_id} under ${primary_sub}`);
+async function getManagementClient(event, api) {
 
     const {domain} = event.secrets;
 
@@ -292,10 +288,15 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
         }
     }
 
-    const client = new ManagementClient({domain, token});
+    return new ManagementClient({domain, token});
+}
+
+async function linkAndMakePrimary(event, api, upstream_sub) {
+    //console.log(`linking ${event.user.user_id} under ${primary_sub}`);
+
+    const client = await getManagementClient(event, api);
 
     const {user_id, provider} = event.user.identities[0];
-
 
     // Have either A or B
 
@@ -317,9 +318,10 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
     const [up_provider, up_user_id] = [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
     try {
         await client.users.link({id: `${provider}|${user_id}`}, {user_id: up_user_id, provider: up_provider});
-        console.log(`link successful current user to ${up_user_id} of provider: ${up_provider}`);
+        console.log(`link successful current user ${provider}|${user_id} to ${up_user_id} of provider: ${up_provider}`);
     } catch (err) {
         console.log(`unable to link, no changes. error: ${JSON.stringify(err)}`);
+        return api.access.deny('error during linking');
     }
 }
 
@@ -406,40 +408,7 @@ async function unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink)
 
     console.log(`unlinkIdentity: ` + primary_id, connection, unlink_id);
 
-    const {domain} = event.secrets;
-
-    let {value: token} = api.cache.get('management-token') || {};
-
-    if (!token) {
-        const {clientId, clientSecret} = event.secrets || {};
-
-        const cc = new AuthenticationClient({domain, clientId, clientSecret});
-
-        try {
-            const {data} = await cc.oauth.clientCredentialsGrant({audience: `https://${domain}/api/v2/`});
-
-            token = data?.access_token;
-
-            if (!token) {
-                console.log('failed get api v2 cc token');
-                return;
-            }
-            console.log('cache MIS m2m token!');
-
-            console.log(token);
-
-            const result = api.cache.set('management-token', token, {ttl: data.expires_in * 1000});
-
-            if (result?.type === 'error') {
-                console.log('failed to set the token in the cache with error code', result.code);
-            }
-        } catch (err) {
-            console.log('failed calling cc grant', err);
-            return;
-        }
-    }
-
-    const client = new ManagementClient({domain, token});
+    const client = await getManagementClient(event, api);
 
     try {
         const response = await client.users.unlink({
