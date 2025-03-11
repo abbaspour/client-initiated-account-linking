@@ -1,12 +1,13 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
 
-const mockLinkMethod = _jest.fn();
-const mockUnlinkMethod = _jest.fn();
-
 // Mock the necessary objects and methods
 _jest.mock('axios');
 _jest.mock('jwks-rsa');
+
+const mockLinkMethod = _jest.fn();
+const mockUnlinkMethod = _jest.fn();
+
 _jest.mock('auth0', () => ({
     ManagementClient: _jest.fn().mockReturnValue({
         users: {
@@ -93,25 +94,25 @@ describe('onExecutePostLogin', () => {
     it('should exit if not expected resource-server', async () => {
         mockEvent.resource_server.identifier = 'my-other-api';
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('skip account linking. resource-server: my-other-api');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if empty scopes', async () => {
         mockEvent.transaction.requested_scopes = null;
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('requested scopes invalid');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if scope not link or unlink', async () => {
         mockEvent.transaction.requested_scopes = ['some-other-scope'];
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('no link_account or unlink_account scopes requested');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if both link and unlink requested', async () => {
         mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('both link_account and unlink_account requested');
+        expect(mockApi.noop).toHaveBeenCalledWith('invalid request');
     });
 
     it('should exit if no id_token_hint passed', async () => {
@@ -126,12 +127,14 @@ describe('onExecutePostLogin', () => {
         expect(mockApi.access.deny).toHaveBeenCalledWith('no requested_connection requested');
     });
 
-    it('should exit link if user is already linked to requested connection', async () => {
+    it('should redirect if user is already linked to requested connection', async () => {
         mockEvent.user.identities.push({
             connection: 'google-oauth2'
         });
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith(`user has profile against connection ${mockEvent.request.query.requested_connection}`);
+        expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
+            'https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email'
+        );
     });
 
     it('should exit unlink if user is does not have link to requested connection', async () => {
@@ -169,7 +172,6 @@ describe('onExecutePostLogin', () => {
 
         await onExecutePostLogin(mockEvent, mockApi);
 
-        // Expect sendUserTo to be called with the correct URL
         expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
             expect.stringContaining('https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email')
         );
@@ -296,30 +298,29 @@ describe('onContinuePostLogin', () => {
     it('continue should exit if not expected resource-server', async () => {
         mockEvent.resource_server.identifier = 'my-other-api';
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid resource-server: my-other-api');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if empty scopes', async () => {
         mockEvent.transaction.requested_scopes = null;
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('requested scopes invalid');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if scope not link or unlink', async () => {
         mockEvent.transaction.requested_scopes = ['some-other-scope'];
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('no link_account or unlink_account scopes requested');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if both link and unlink requested', async () => {
         mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('both link_account and unlink_account requested');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('invalid request');
     });
 
     it('continue should exit if exchange fails', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(function () {
             throw new Error('timeout');
         });
@@ -330,7 +331,6 @@ describe('onContinuePostLogin', () => {
 
     it('continue should exit if exchange returns invalid data', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(() => 'garbage');
 
         await onContinuePostLogin(mockEvent, mockApi);
@@ -339,7 +339,6 @@ describe('onContinuePostLogin', () => {
 
     it('continue should exit if exchange returns invalid id_token', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });
@@ -351,12 +350,12 @@ describe('onContinuePostLogin', () => {
         });
 
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('id_token verification failed');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error in exchange');
     });
 
     it('continue should exit if linking returns invalid nonce', async () => {
-        const axios = require('axios');
 
+        const axios = require('axios');
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });
@@ -371,9 +370,9 @@ describe('onContinuePostLogin', () => {
         expect(mockApi.access.deny).toHaveBeenCalledWith('nonce mismatch');
     });
 
-    it('continue should exit if email is not verified', async () => {
-        const axios = require('axios');
+    it('continue should exit link if already linked', async () => {
 
+        const axios = require('axios');
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });
@@ -381,11 +380,27 @@ describe('onContinuePostLogin', () => {
         const jwt = require('jsonwebtoken');
 
         jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
-            return cb(null, {sub: 'auth0|123', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: false});
+            return cb(null, {sub: 'auth0|123', nonce: 'cb2515ab1456f97027c903f2702f7d06'});
         });
 
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('email not verified for nested tx user: auth0|123');
+        expect(mockApi.noop).toHaveBeenCalledWith('user already linked');
+    });
+
+    it('continue should exit if email is not verified', async () => {
+        const axios = require('axios');
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|456', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: false});
+        });
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.access.deny).toHaveBeenCalledWith('email not verified for nested user');
     });
 
     it('continue should exit unlink if user_id missing in id_token', async () => {

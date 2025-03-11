@@ -1,5 +1,5 @@
 # client-initiated-account-linking
-Client initiated Account Linking in Auth0
+Client Initiated Account Linking in Auth0
 
 # Steps
 
@@ -24,7 +24,7 @@ Required arguments are:
 * `audience`: `my-account`
 * `scope`: `link_account`
 * `requested_connection`: facebook, google-oauth2, etc 
-* (optional) `requested_connection_scopes`: scopes to upstream IdP (TBA)
+* (optional) `requested_connection_scopes`: scopes to upstream IdP
 
 ![link prompt](./img/link-prompt.png)
 
@@ -35,8 +35,9 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
     redirect_uri=https://jwt.io &
     scope=link_account &
     audience=my-account &
-    id_token_hint=ID_TOKEN_STEP_1
-    requested_connection=google-oauth2
+    id_token_hint=ID_TOKEN_STEP_1 &
+    requested_connection=google-oauth2 &
+    requested_connection_scopes=https://www.googleapis.com/auth/calendar.readonly
 ```
 
 ### Step 3) Authenticate with upstream IdP 
@@ -60,9 +61,9 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
     response_type=id_token &
     nonce=mynonce &
     redirect_uri=https://jwt.io &
-    scope=link_account &
+    scope=unlink_account &
     audience=my-account &
-    id_token_hint=ID_TOKEN_STEP_1
+    id_token_hint=ID_TOKEN_STEP_1 &
     requested_connection=google-oauth2
 ```
 
@@ -77,7 +78,4 @@ Try logging out of the current session and login back again with the correct use
 ## maxAge exceeded
 id_token_hint or id_token from nested transaction are tool old. 
 Try renewing the id_token by logging in interactively again.
-
-## request_connection_scopes is not working
-that functionality is wip.
 
