@@ -1,6 +1,6 @@
 all: test
 
-test: node_modules
+test:
 	npm run test
 
 lint: node_modules

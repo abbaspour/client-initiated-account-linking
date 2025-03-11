@@ -1,5 +1,7 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
+const axios = require("axios");
+const jwt = require("jsonwebtoken");
 
 const mockLinkMethod = _jest.fn();
 const mockUnlinkMethod = _jest.fn();
@@ -126,12 +128,14 @@ describe('onExecutePostLogin', () => {
         expect(mockApi.access.deny).toHaveBeenCalledWith('no requested_connection requested');
     });
 
-    it('should exit link if user is already linked to requested connection', async () => {
+    it('should redirect if user is already linked to requested connection', async () => {
         mockEvent.user.identities.push({
             connection: 'google-oauth2'
         });
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith(`user has profile against connection ${mockEvent.request.query.requested_connection}`);
+        expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
+            'https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email'
+        );
     });
 
     it('should exit unlink if user is does not have link to requested connection', async () => {
@@ -169,7 +173,6 @@ describe('onExecutePostLogin', () => {
 
         await onExecutePostLogin(mockEvent, mockApi);
 
-        // Expect sendUserTo to be called with the correct URL
         expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
             expect.stringContaining('https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email')
         );
@@ -371,6 +374,23 @@ describe('onContinuePostLogin', () => {
         expect(mockApi.access.deny).toHaveBeenCalledWith('nonce mismatch');
     });
 
+    it('continue should exit link if already linked', async () => {
+        const axios = require('axios');
+
+        axios.mockImplementation(async function () {
+            return {data: {id_token: 'some-id-token'}};
+        });
+
+        const jwt = require('jsonwebtoken');
+
+        jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
+            return cb(null, {sub: 'auth0|123', nonce: 'cb2515ab1456f97027c903f2702f7d06'});
+        });
+
+        await onContinuePostLogin(mockEvent, mockApi);
+        expect(mockApi.noop).toHaveBeenCalledWith('user already linked');
+    });
+
     it('continue should exit if email is not verified', async () => {
         const axios = require('axios');
 
@@ -381,11 +401,11 @@ describe('onContinuePostLogin', () => {
         const jwt = require('jsonwebtoken');
 
         jwt.verify.mockImplementation((id_token, getKey, signature, cb) => {
-            return cb(null, {sub: 'auth0|123', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: false});
+            return cb(null, {sub: 'auth0|456', nonce: 'cb2515ab1456f97027c903f2702f7d06', email_verified: false});
         });
 
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('email not verified for nested tx user: auth0|123');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('email not verified for nested user');
     });
 
     it('continue should exit unlink if user_id missing in id_token', async () => {

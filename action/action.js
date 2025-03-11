@@ -24,7 +24,7 @@ const hasDoneMfa = (event) => event.authentication.methods.some(m => m.name === 
 const mapEnrolledToFactors = (user) => user.enrolledFactors.map(f => f.method === 'sms' ? {
     type: 'phone', options: {preferredMethod: 'sms'}
 } : {type: f.method});
-const linkedIdentityWithConnection = (user, connection) => user.identities.filter(i => i.connection === connection);
+//const linkedIdentityWithConnection = (user, connection) => user.identities.filter(i => i.connection === connection);
 const makeNonce = (event) =>
     crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
 
@@ -94,20 +94,24 @@ exports.onExecutePostLogin = async (event, api) => {
     let target_connection;
     let nonce;
 
-    const link_with_req_conn = linkedIdentityWithConnection(event.user, requested_connection);
+    //const link_with_req_conn = linkedIdentityWithConnection(event.user, requested_connection);
 
     if (is_link_request) {
+        /*
         if (link_with_req_conn.length > 0) { // already has a link with upstream connection ?
             return api.access.deny(`user has profile against connection ${requested_connection}`);
         }
+        */
         target_connection = requested_connection;
         nonce = makeNonce(event);
     } else {
-        if (!link_with_req_conn || link_with_req_conn.length === 0) {
+        const identity_with_req_conn = event.user.identities.filter(i => i.connection === requested_connection);
+
+        if (!identity_with_req_conn || identity_with_req_conn.length === 0) {
             return api.access.deny(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
         }
         target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
-        nonce = `${link_with_req_conn[0].connection}|${link_with_req_conn[0].user_id}`; // TODO: this is unsafe
+        nonce = `${identity_with_req_conn[0].connection}|${identity_with_req_conn[0].user_id}`; // TODO: this is unsafe
     }
 
     const {domain} = event.secrets || {};
@@ -155,6 +159,9 @@ exports.onExecutePostLogin = async (event, api) => {
 
 exports.onContinuePostLogin = async (event, api) => {
     //console.log(`onContinuePostLogin event: ${JSON.stringify(event)}`);
+    const noop = api.noop || function (x) { // facilitate unit testing
+        console.log(x);
+    };
 
     const {domain, clientId, clientSecret} = event.secrets || {};
 
@@ -207,7 +214,6 @@ exports.onContinuePostLogin = async (event, api) => {
     } catch (e) {
         console.log('account linking continue id_token verify error', e);
         return api.access.deny('id_token verification failed');
-
     }
 
     /* optional check: If you are only linking users with the same email, you can uncomment this
@@ -225,21 +231,33 @@ exports.onContinuePostLogin = async (event, api) => {
             return api.access.deny('nonce mismatch');
         }
 
+        if (event.user.user_id === id_token.sub) {
+            return noop('user already linked');
+        }
+
         // optional check: upstream to supply verified emails only
         if (id_token.email_verified !== true) {
-            return api.access.deny(`email not verified for nested tx user: ${id_token.sub}`);
+            return api.access.deny('email not verified for nested user');
         }
+
+        /*
+        const identity_with_conn_id = event.user.identities.filter(i => i.provider === up_provider && i.user_id === up_user_id);
+
+        if(identity_with_conn_id.length > 0) {
+            return noop('user already linked');
+        }
+        */
 
         await linkAndMakePrimary(event, api, id_token.sub);
     } else {
 
-        const user_id_to_unlink = id_token.nonce; // I know this is not great, but...
+        const sub_to_unlink = id_token.nonce; // I know this is not great, but...
 
-        if (!user_id_to_unlink) {
+        if (!sub_to_unlink) {
             return api.access.deny('missing user_id claim');
         }
 
-        await unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink);
+        await unlink(event, api, sub_to_unlink);
     }
 };
 
@@ -287,9 +305,9 @@ async function getManagementClient(event, api) {
     return new ManagementClient({domain, token});
 }
 
-function splitUserId(upstream_sub) {
-    const firstPipeIndex = upstream_sub.indexOf('|');
-    return [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
+function splitSubClaim(sub) {
+    const firstPipeIndex = sub.indexOf('|');
+    return {provider: sub.slice(0, firstPipeIndex), user_id: sub.slice(firstPipeIndex + 1)};
 }
 
 async function linkAndMakePrimary(event, api, upstream_sub) {
@@ -301,16 +319,14 @@ async function linkAndMakePrimary(event, api, upstream_sub) {
     // (A) this block links current user to upstream user, making this user secondary
     // (B) this block links current user to upstream user, keeping this user primary
 
-/*
-    const firstPipeIndex = upstream_sub.indexOf('|');
-    const [up_provider, up_user_id] = [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
-*/
-    const [up_provider, up_user_id] = splitUserId(upstream_sub);
-
+    /*
+        const firstPipeIndex = upstream_sub.indexOf('|');
+        const [up_provider, up_user_id] = [upstream_sub.slice(0, firstPipeIndex), upstream_sub.slice(firstPipeIndex + 1)];
+    */
 
     try {
-        await client.users.link({id: `${provider}|${user_id}`}, {user_id: up_user_id, provider: up_provider});
-        console.log(`link successful current user ${provider}|${user_id} to ${up_user_id} of provider: ${up_provider}`);
+        await client.users.link({id: `${provider}|${user_id}`}, splitSubClaim(upstream_sub));
+        console.log(`link successful current user ${provider}|${user_id} to ${upstream_sub}`);
         // api.authentication.setPrimaryUser(upstream_sub);
     } catch (err) {
         console.log(`unable to link, no changes. error: ${JSON.stringify(err)}`);
@@ -383,14 +399,14 @@ async function exchange(domain, client_id, client_secret, code, redirect_uri) {
     return id_token;
 }
 
-async function unlink(event, api, user_id) {
+async function unlink(event, api, sub) {
 
-    const [connection, user_id_to_unlink] = splitUserId(user_id);
+    const { provider: connection, user_id: user_id_to_unlink} = splitSubClaim(sub);
 
     console.log(`unlink connection: ${connection}, user_id_to_unlink: ${user_id_to_unlink}`);
 
     // Run the unlink function
-    const unlinkIdentities = event.user.identities.filter(x => x.connection === connection &&  x.user_id === user_id_to_unlink);
+    const unlinkIdentities = event.user.identities.filter(x => x.connection === connection && x.user_id === user_id_to_unlink);
 
     if (unlinkIdentities.length !== 1) {
         return api.access.deny('target identity not found');
