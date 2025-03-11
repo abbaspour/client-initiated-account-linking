@@ -1,6 +1,7 @@
 .idea/
 terraform.tfstate
 terraform.tfstate.backup
+.terraform.tfstate.lock.info
 *.plan
 events/
 terraform.auto.tfvars
@@ -8,3 +9,4 @@ terraform.auto.tfvars
 *.swp
 .terraform
 package-lock.json
+*.pem

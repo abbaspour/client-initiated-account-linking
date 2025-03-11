@@ -1,5 +1,5 @@
-resource "auth0_client" "par_linking_companion_app" {
-  name        = "PAR Linking companion client"
+resource "auth0_client" "account_linking_companion_app" {
+  name        = "Accoubt linking companion client"
   description = "RWA client for nexted TX and API2"
 
   app_type                              = "regular_web"
@@ -23,7 +23,7 @@ resource "auth0_client" "par_linking_companion_app" {
 }
 
 resource "auth0_client_grant" "account-linking-application_update_users_scopes" {
-  client_id = auth0_client.par_linking_companion_app.client_id
+  client_id = auth0_client.account_linking_companion_app.client_id
   audience  = data.auth0_resource_server.api_v2.identifier
   scopes = ["update:users"]
 }
@@ -42,11 +42,6 @@ resource "auth0_action" "account_linking" {
   dependencies {
     name    = "auth0"
     version = "4.1.0"
-  }
-
-  dependencies {
-    name    = "auth0-js"
-    version = "9.23.3"
   }
 
   dependencies {
@@ -71,17 +66,17 @@ resource "auth0_action" "account_linking" {
 
   secrets {
     name  = "clientId"
-    value = auth0_client.par_linking_companion_app.client_id
+    value = auth0_client.account_linking_companion_app.client_id
   }
 
   secrets {
     name  = "clientSecret"
-    value = data.auth0_client.par_linking_companion_app.client_secret
+    value = data.auth0_client.account_linking_companion_app.client_secret
   }
 }
 
-data "auth0_client" "par_linking_companion_app" {
-  client_id = auth0_client.par_linking_companion_app.client_id
+data "auth0_client" "account_linking_companion_app" {
+  client_id = auth0_client.account_linking_companion_app.client_id
 }
 
 resource "auth0_trigger_actions" "par_account_linking_trigger" {
@@ -95,7 +90,7 @@ resource "auth0_trigger_actions" "par_account_linking_trigger" {
 
 
 output "par_linking_companion_app_id" {
-  value = auth0_client.par_linking_companion_app.client_id
+  value = auth0_client.account_linking_companion_app.client_id
 }
 
 resource "auth0_resource_server" "my-account" {

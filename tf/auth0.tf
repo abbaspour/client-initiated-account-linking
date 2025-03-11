@@ -93,7 +93,7 @@ resource "auth0_connection_clients" "users_clients" {
     auth0_client.spa.id,
     auth0_client.outer_client.id,
     var.auth0_tf_client_id,
-    auth0_client.par_linking_companion_app.id
+    auth0_client.account_linking_companion_app.id
   ]
 }
 
@@ -102,7 +102,7 @@ resource "auth0_connection_clients" "google_clients" {
   enabled_clients = [
     auth0_client.spa.id,
     auth0_client.outer_client.id,
-    auth0_client.par_linking_companion_app.id
+    auth0_client.account_linking_companion_app.id
   ]
   /*
   lifecycle {
@@ -116,7 +116,7 @@ resource "auth0_connection_clients" "facebook_clients" {
   enabled_clients = [
     auth0_client.spa.id,
     auth0_client.outer_client.id,
-    auth0_client.par_linking_companion_app.id
+    auth0_client.account_linking_companion_app.id
   ]
   /*
   lifecycle {
@@ -128,7 +128,7 @@ resource "auth0_connection_clients" "facebook_clients" {
 resource "auth0_connection_clients" "email_clients" {
   connection_id = data.auth0_connection.email.id
   enabled_clients = [
-    auth0_client.par_linking_companion_app.id
+    auth0_client.account_linking_companion_app.id
   ]
   /*
   lifecycle {

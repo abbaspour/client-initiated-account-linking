@@ -1,4 +1,4 @@
-PLAN_FILE=linking-par.plan
+PLAN_FILE=linking.plan
 
 LOG_LEVEL=''
 TF=terraform
