@@ -1,5 +1,5 @@
 /**
- * Handler that will be called during the execution of a PostLogin flow.
+ * Client Initiated Account Linking in Auth0
  *
  * Author: Amin Abbaspour
  * Date: 2025-01-02
@@ -24,7 +24,6 @@ const hasDoneMfa = (event) => event.authentication.methods.some(m => m.name === 
 const mapEnrolledToFactors = (user) => user.enrolledFactors.map(f => f.method === 'sms' ? {
     type: 'phone', options: {preferredMethod: 'sms'}
 } : {type: f.method});
-//const linkedIdentityWithConnection = (user, connection) => user.identities.filter(i => i.connection === connection);
 const makeNonce = (event) =>
     crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
 
@@ -42,7 +41,7 @@ exports.onExecutePostLogin = async (event, api) => {
 
     console.log(`protocol: ${protocol}, client_id: ${event.client.client_id}`);
 
-    const {clientId} = event.secrets || {};
+    const {clientId, domain} = event.secrets || {};
 
     if (event.client.client_id === clientId) {
 
@@ -94,14 +93,7 @@ exports.onExecutePostLogin = async (event, api) => {
     let target_connection;
     let nonce;
 
-    //const link_with_req_conn = linkedIdentityWithConnection(event.user, requested_connection);
-
     if (is_link_request) {
-        /*
-        if (link_with_req_conn.length > 0) { // already has a link with upstream connection ?
-            return api.access.deny(`user has profile against connection ${requested_connection}`);
-        }
-        */
         target_connection = requested_connection;
         nonce = makeNonce(event);
     } else {
@@ -110,11 +102,10 @@ exports.onExecutePostLogin = async (event, api) => {
         if (!identity_with_req_conn || identity_with_req_conn.length === 0) {
             return api.access.deny(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
         }
+
         target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
         nonce = `${identity_with_req_conn[0].connection}|${identity_with_req_conn[0].user_id}`; // TODO: this is unsafe
     }
-
-    const {domain} = event.secrets || {};
 
     console.log(`account linking verifying id_token_hint: ${id_token_hint}`);
 
@@ -193,27 +184,12 @@ exports.onContinuePostLogin = async (event, api) => {
         return api.access.deny('both link_account and unlink_account requested');
     }
 
-    let id_token_str;
+    let id_token;
     try {
-        id_token_str = await exchange(domain, clientId, clientSecret, code, `https://${domain}/continue`);
+        id_token = await exchange(api, domain, clientId, clientSecret, code, `https://${domain}/continue`);
     } catch (e) {
         console.log('account linking continue exchange error', e);
         return api.access.deny('error in exchange');
-    }
-
-    console.log(`account linking continue id_token string from exchange: ${id_token_str}`);
-
-    if (!id_token_str) {
-        return api.access.deny('error in exchange');
-    }
-
-    let id_token;
-
-    try {
-        id_token = await verifyIdToken(api, id_token_str, domain, clientId);
-    } catch (e) {
-        console.log('account linking continue id_token verify error', e);
-        return api.access.deny('id_token verification failed');
     }
 
     /* optional check: If you are only linking users with the same email, you can uncomment this
@@ -240,17 +216,8 @@ exports.onContinuePostLogin = async (event, api) => {
             return api.access.deny('email not verified for nested user');
         }
 
-        /*
-        const identity_with_conn_id = event.user.identities.filter(i => i.provider === up_provider && i.user_id === up_user_id);
-
-        if(identity_with_conn_id.length > 0) {
-            return noop('user already linked');
-        }
-        */
-
         await linkAndMakePrimary(event, api, id_token.sub);
     } else {
-
         const sub_to_unlink = id_token.nonce; // I know this is not great, but...
 
         if (!sub_to_unlink) {
@@ -385,7 +352,7 @@ async function verifyIdToken(api, id_token, domain, client_id, nonce) {
     });
 }
 
-async function exchange(domain, client_id, client_secret, code, redirect_uri) {
+async function exchange(api, domain, client_id, client_secret, code, redirect_uri) {
     // console.log(`exchanging code: ${code}`);
 
     const {data: {id_token}} = await axios({
@@ -396,7 +363,13 @@ async function exchange(domain, client_id, client_secret, code, redirect_uri) {
         }, timeout: 5000 // 5 sec TODO configurable
     });
 
-    return id_token;
+    console.log(`account linking continue id_token string from exchange: ${id_token}`);
+
+    if (!id_token) {
+        throw new Error('no id_token in exchange response');
+    }
+
+    return verifyIdToken(api, id_token, domain, client_id);
 }
 
 async function unlink(event, api, sub) {

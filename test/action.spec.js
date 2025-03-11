@@ -1,14 +1,13 @@
 const {expect, describe, it, beforeEach} = require('@jest/globals');
 const {jest: _jest} = require('@jest/globals');
-const axios = require("axios");
-const jwt = require("jsonwebtoken");
-
-const mockLinkMethod = _jest.fn();
-const mockUnlinkMethod = _jest.fn();
 
 // Mock the necessary objects and methods
 _jest.mock('axios');
 _jest.mock('jwks-rsa');
+
+const mockLinkMethod = _jest.fn();
+const mockUnlinkMethod = _jest.fn();
+
 _jest.mock('auth0', () => ({
     ManagementClient: _jest.fn().mockReturnValue({
         users: {
@@ -322,7 +321,6 @@ describe('onContinuePostLogin', () => {
 
     it('continue should exit if exchange fails', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(function () {
             throw new Error('timeout');
         });
@@ -333,7 +331,6 @@ describe('onContinuePostLogin', () => {
 
     it('continue should exit if exchange returns invalid data', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(() => 'garbage');
 
         await onContinuePostLogin(mockEvent, mockApi);
@@ -342,7 +339,6 @@ describe('onContinuePostLogin', () => {
 
     it('continue should exit if exchange returns invalid id_token', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });
@@ -354,12 +350,12 @@ describe('onContinuePostLogin', () => {
         });
 
         await onContinuePostLogin(mockEvent, mockApi);
-        expect(mockApi.access.deny).toHaveBeenCalledWith('id_token verification failed');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('error in exchange');
     });
 
     it('continue should exit if linking returns invalid nonce', async () => {
-        const axios = require('axios');
 
+        const axios = require('axios');
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });
@@ -375,8 +371,8 @@ describe('onContinuePostLogin', () => {
     });
 
     it('continue should exit link if already linked', async () => {
-        const axios = require('axios');
 
+        const axios = require('axios');
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });
@@ -393,7 +389,6 @@ describe('onContinuePostLogin', () => {
 
     it('continue should exit if email is not verified', async () => {
         const axios = require('axios');
-
         axios.mockImplementation(async function () {
             return {data: {id_token: 'some-id-token'}};
         });

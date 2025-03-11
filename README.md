@@ -1,5 +1,5 @@
 # client-initiated-account-linking
-Client initiated Account Linking in Auth0
+Client Initiated Account Linking in Auth0
 
 # Steps
 
@@ -35,8 +35,9 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
     redirect_uri=https://jwt.io &
     scope=link_account &
     audience=my-account &
-    id_token_hint=ID_TOKEN_STEP_1
-    requested_connection=google-oauth2
+    id_token_hint=ID_TOKEN_STEP_1 &
+    requested_connection=google-oauth2 &
+    requested_connection_scopes=https://www.googleapis.com/auth/calendar.readonly
 ```
 
 ### Step 3) Authenticate with upstream IdP 
@@ -62,7 +63,7 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
     redirect_uri=https://jwt.io &
     scope=unlink_account &
     audience=my-account &
-    id_token_hint=ID_TOKEN_STEP_1
+    id_token_hint=ID_TOKEN_STEP_1 &
     requested_connection=google-oauth2
 ```
 
