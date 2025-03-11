@@ -58,7 +58,7 @@ exports.onExecutePostLogin = async (event, api) => {
     }
 
     if(!isValidRequest(event)) {
-        return api.noop('invalid request');
+        return noop('invalid request');
     }
 
     const is_link_request = event?.transaction?.requested_scopes.includes(SCOPES.LINK);
