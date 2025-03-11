@@ -71,11 +71,11 @@ resource "auth0_action" "account_linking" {
 
   secrets {
     name  = "clientSecret"
-    value = data.auth0_client.linking_companion_app.client_secret
+    value = data.auth0_client.account_linking_companion_app.client_secret
   }
 }
 
-data "auth0_client" "linking_companion_app" {
+data "auth0_client" "account_linking_companion_app" {
   client_id = auth0_client.account_linking_companion_app.client_id
 }
 

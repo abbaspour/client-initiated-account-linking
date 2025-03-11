@@ -83,7 +83,7 @@ describe('onExecutePostLogin', () => {
     it('should exit if not expected resource-server', async () => {
         mockEvent.resource_server.identifier = 'my-other-api';
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('invalid resource-server: my-other-api');
+        expect(mockApi.noop).toHaveBeenCalledWith('skip account linking. resource-server: my-other-api');
     });
 
     it('should exit if empty scopes', async () => {
@@ -101,19 +101,19 @@ describe('onExecutePostLogin', () => {
     it('should exit if both link and unlink requested', async () => {
         mockEvent.transaction.requested_scopes = ['link_account', 'unlink_account'];
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('both link_account and unlink_account requested');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('both link_account and unlink_account requested');
     });
 
     it('should exit if no id_token_hint passed', async () => {
         delete mockEvent.request.query.id_token_hint;
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('no id_token_hint present');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('no id_token_hint present');
     });
 
     it('should exit if no requested_connection passed', async () => {
         delete mockEvent.request.query.requested_connection;
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('no requested_connection requested');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('no requested_connection requested');
     });
 
     it('should exit link if user is already linked to requested connection', async () => {
@@ -121,13 +121,13 @@ describe('onExecutePostLogin', () => {
             connection: 'google-oauth2'
         });
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} has profile against connection: ${mockEvent.request.query.requested_connection}`);
+        expect(mockApi.access.deny).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} has profile against connection: ${mockEvent.request.query.requested_connection}`);
     });
 
     it('should exit unlink if user is does not have link to requested connection', async () => {
         mockEvent.transaction.requested_scopes[0] = 'unlink_account'
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} does not have profile against connection: ${mockEvent.request.query.requested_connection}`);
+        expect(mockApi.access.deny).toHaveBeenCalledWith(`user ${mockEvent.user.user_id} does not have profile against connection: ${mockEvent.request.query.requested_connection}`);
     });
 
     it('should exit if id_token_hint invalid', async () => {
@@ -138,7 +138,7 @@ describe('onExecutePostLogin', () => {
         });
 
         await onExecutePostLogin(mockEvent, mockApi);
-        expect(mockApi.noop).toHaveBeenCalledWith('id_token_hint verification failed');
+        expect(mockApi.access.deny).toHaveBeenCalledWith('id_token_hint verification failed');
     });
 
     it('should exit if id_token_hint sub mismatch', async () => {
@@ -151,8 +151,7 @@ describe('onExecutePostLogin', () => {
 
         await onExecutePostLogin(mockEvent, mockApi);
 
-        expect(mockApi.access.deny).toHaveBeenCalledWith('sub mismatch');
-        expect(mockApi.noop).toHaveBeenCalledWith(`sub mismatch. expected ${mockEvent.user.user_id} received auth0|321`);
+        expect(mockApi.access.deny).toHaveBeenCalledWith(`sub mismatch. expected ${mockEvent.user.user_id} received auth0|321`);
     });
 
 
@@ -162,8 +161,29 @@ describe('onExecutePostLogin', () => {
 
         // Expect sendUserTo to be called with the correct URL
         expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
-            // eslint-disable-next-line
             expect.stringContaining('https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email')
+        );
+    });
+
+    it('should redirect to nestedAuthorizeURL with one connection_scope', async () => {
+
+        mockEvent.request.query.requested_connection_scopes = 'https://www.googleapis.com/auth/calendar.readonly'
+        await onExecutePostLogin(mockEvent, mockApi);
+
+        // Expect sendUserTo to be called with the correct URL
+        expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
+            'https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email&connection_scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly'
+        );
+    });
+
+    it('should redirect to nestedAuthorizeURL with two connection_scope', async () => {
+
+        mockEvent.request.query.requested_connection_scopes = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events.readonly'
+        await onExecutePostLogin(mockEvent, mockApi);
+
+        // Expect sendUserTo to be called with the correct URL
+        expect(mockApi.redirect.sendUserTo).toHaveBeenCalledWith(
+            'https://test.auth0.com/authorize?client_id=companionClientId&redirect_uri=https%3A%2F%2Ftest.auth0.com%2Fcontinue&nonce=cb2515ab1456f97027c903f2702f7d06&response_type=code&prompt=login&max_age=0&connection=google-oauth2&login_hint=test%40example.com&scope=openid%20profile%20email&connection_scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events.readonly'
         );
     });
 

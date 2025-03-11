@@ -25,7 +25,8 @@ const mapEnrolledToFactors = (user) => user.enrolledFactors.map(f => f.method ==
     type: 'phone', options: {preferredMethod: 'sms'}
 } : {type: f.method});
 const linkedIdentityWithConnection = (user, connection) => user.identities.filter(i => i.connection === connection);
-const makeNonce = (event) => crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
+const makeNonce = (event) =>
+    crypto.createHash('sha256').update(event.user.user_id + event.request.ip).digest('hex').substring(0, 32);
 
 exports.onExecutePostLogin = async (event, api) => {
 
@@ -58,7 +59,7 @@ exports.onExecutePostLogin = async (event, api) => {
     const {identifier: resource_server} = event?.resource_server;
 
     if (resource_server !== linking_resource_server) {
-        return noop(`invalid resource-server: ${resource_server}`);
+        return noop(`skip account linking. resource-server: ${resource_server}`);
     }
 
     const {requested_scopes} = event?.transaction;
@@ -75,19 +76,19 @@ exports.onExecutePostLogin = async (event, api) => {
     }
 
     if (is_link_request && is_unlink_request) {
-        return noop('both link_account and unlink_account requested');
+        return api.access.deny('both link_account and unlink_account requested');
     }
 
     const {id_token_hint} = event?.request?.query;
 
     if (!id_token_hint) {
-        return noop('no id_token_hint present');
+        return api.access.deny('no id_token_hint present');
     }
 
     const {requested_connection, requested_connection_scopes} = event.request.query;
 
     if (!requested_connection) {
-        return noop('no requested_connection requested');
+        return api.access.deny('no requested_connection requested');
     }
 
     let target_connection;
@@ -97,13 +98,13 @@ exports.onExecutePostLogin = async (event, api) => {
 
     if (is_link_request) {
         if (link_with_req_conn.length > 0) { // already has a link with upstream connection ?
-            return noop(`user ${event.user.user_id} has profile against connection: ${requested_connection}`);
+            return api.access.deny(`user ${event.user.user_id} has profile against connection: ${requested_connection}`);
         }
         target_connection = requested_connection;
         nonce = makeNonce(event);
     } else {
         if (!link_with_req_conn || link_with_req_conn.length === 0) {
-            return noop(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
+            return api.access.deny(`user ${event.user.user_id} does not have profile against connection: ${requested_connection}`);
         }
         target_connection = event.user.identities[0].connection; // reauthenticate with the primary user connection
         nonce = link_with_req_conn[0].user_id; // TODO: this is unsafe
@@ -119,33 +120,36 @@ exports.onExecutePostLogin = async (event, api) => {
         id_token = await verifyIdToken(api, id_token_hint, domain); // todo: optional auth_time claim check
     } catch (e) {
         console.log('account linking error during id_token verification', e);
-        return noop('id_token_hint verification failed');
+        return api.access.deny('id_token_hint verification failed');
     }
 
     console.log(`account linking incoming id_token decoded: ${JSON.stringify(id_token)}`);
 
     if (id_token.sub !== event?.user?.user_id) {
-        api.access.deny('sub mismatch');
-        return noop(`sub mismatch. expected ${event?.user?.user_id} received ${id_token.sub}`);
+        return api.access.deny(`sub mismatch. expected ${event?.user?.user_id} received ${id_token.sub}`);
     }
 
     console.log(`nonce for inner tx: ${nonce}`);
 
-
     // todo: PKCE
-    const nestedAuthorizeURL = buildAuthorizeUrl(domain, {
+    const params = {
         client_id: clientId,
-        redirect_uri: `https://${domain}/continue`,
+        redirect_uri: `https://${domain}/continue`, // TODO <-- HERE add this user's ID
         nonce,
         response_type: 'code',
         prompt: 'login',
         max_age: 0,
         connection: target_connection,
         login_hint: event.user.email,
-        scope: 'openid profile email ' + requested_connection_scopes ?? ''
-    });
+        scope: 'openid profile email'
+    };
 
-    console.log(`account linking redirecting to ${nestedAuthorizeURL}`);
+    if (requested_connection_scopes)
+        params.connection_scope = requested_connection_scopes;
+
+    const nestedAuthorizeURL = buildAuthorizeUrl(domain, params);
+
+    console.log(`account linking redirecting to: ${nestedAuthorizeURL}`);
     api.redirect.sendUserTo(nestedAuthorizeURL);
 };
 
@@ -156,7 +160,7 @@ exports.onContinuePostLogin = async (event, api) => {
         console.log(x);
     };
 
-    const {domain, client_id} = event.secrets || {};
+    const {domain, clientId, clientSecret} = event.secrets || {};
 
     const {code} = event.request.query;
     if (!code) {
@@ -188,7 +192,7 @@ exports.onContinuePostLogin = async (event, api) => {
 
     let id_token_str;
     try {
-        id_token_str = await exchange(domain, client_id, event.secrets.clientSecret, code, `https://${domain}/continue`);
+        id_token_str = await exchange(domain, clientId, clientSecret, code, `https://${domain}/continue`);
     } catch (e) {
         console.log('account linking continue exchange error', e);
         return api.access.deny('error in exchange');
@@ -203,7 +207,7 @@ exports.onContinuePostLogin = async (event, api) => {
     let id_token;
 
     try {
-        id_token = await verifyIdToken(api, id_token_str, domain, client_id);
+        id_token = await verifyIdToken(api, id_token_str, domain, clientId);
     } catch (e) {
         console.log('account linking continue id_token verify error', e);
         return api.access.deny('id_token verification failed');
@@ -439,11 +443,11 @@ async function unlink(event, api, /* connection_to_unlink, */ user_id_to_unlink)
 
     try {
         const response = await client.users.unlink({
-            id: primary_id,          // Primary user ID (who has linked accounts)
+            id: primary_id,       // Primary user ID (who has linked accounts)
             provider: connection, // e.g., "google-oauth2"
             user_id: unlink_id,   // ID of the linked account
         });
-        console.log("successfully unlinked identity:", primary_id, connection, unlink_id);
+        console.log(`successfully unlinked identity ${connection}|${unlink_id} from primary: ${primary_id}`);
     } catch (error) {
         console.error("error unlinking identity:", error.response?.data || error);
     }
