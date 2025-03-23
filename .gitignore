@@ -10,3 +10,4 @@ terraform.auto.tfvars
 .terraform
 package-lock.json
 *.pem
+node_modules
