@@ -1,4 +1,5 @@
 # client-initiated-account-linking
+
 Client Initiated Account Linking in Auth0
 
 # Steps
@@ -6,6 +7,7 @@ Client Initiated Account Linking in Auth0
 ## Linking
 
 ### Step 1) Authenticate user and obtain an id_token
+
 Assuming you have a CLIENT_ID with implicit grant against callback URL https://jwt.io
 
 ![initial login](./img/initial-login.png)
@@ -20,11 +22,13 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
 ```
 
 ### Step 2) Start a new transaction with link_account scope against my-account audience
+
 Required arguments are:
-* `audience`: `my-account`
-* `scope`: `link_account`
-* `requested_connection`: facebook, google-oauth2, etc 
-* (optional) `requested_connection_scopes`: scopes to upstream IdP
+
+- `audience`: `my-account`
+- `scope`: `link_account`
+- `requested_connection`: facebook, google-oauth2, etc
+- (optional) `requested_connection_scopes`: scopes to upstream IdP
 
 ![link prompt](./img/link-prompt.png)
 
@@ -40,19 +44,23 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
     requested_connection_scopes=https://www.googleapis.com/auth/calendar.readonly
 ```
 
-### Step 3) Authenticate with upstream IdP 
-After authentication user from step 1 should be linked to user from step 2. 
+### Step 3) Authenticate with upstream IdP
 
+After authentication user from step 1 should be linked to user from step 2.
 
 ## Unlinking
+
 ### Step 1) Authenticate user and obtain an id_token
+
 Same as step 1 from linking
 
 ### Step 2) Start a new transaction with unlink_account scope against my-account audience
+
 Required arguments are:
-* `audience`: `my-account`
-* `scope`: `unlink_account`
-* `requested_connection`: facebook, google-oauth2, etc
+
+- `audience`: `my-account`
+- `scope`: `unlink_account`
+- `requested_connection`: facebook, google-oauth2, etc
 
 ![unlink prompt](./img/unlink-prompt.png)
 
@@ -68,14 +76,17 @@ https://TENANT.auth0.com/authorize?client_id=CLIENT_ID &
 ```
 
 ### Step 3) Re-authenticate with primary connection
+
 After authentication user from step 1 should be unlinked to user from step 2.
 
 # Common issues
+
 ## sub mismatch
-Current session user doesn't align with the id_token_hint supplied. 
+
+Current session user doesn't align with the id_token_hint supplied.
 Try logging out of the current session and login back again with the correct user.
 
 ## maxAge exceeded
-id_token_hint or id_token from nested transaction are tool old. 
-Try renewing the id_token by logging in interactively again.
 
+id_token_hint or id_token from nested transaction are tool old.
+Try renewing the id_token by logging in interactively again.

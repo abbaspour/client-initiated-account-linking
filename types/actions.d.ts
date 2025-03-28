@@ -2,7 +2,6 @@
  * This action source is fetched rom the auth0 dashboard.
  */
 
-
 /**
  *  e.g.:
  *  export type AddonsTypesRegistry = {
@@ -74,27 +73,18 @@ type Prettify<T> = T extends object
       [K in keyof T]: Prettify<T[K]>;
     }
   : T & {};
-type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (
-  x: infer I
-) => void
+type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void
   ? I
   : never;
-type Extend<
-  NS extends string,
-  T extends unknown
-> = NS extends `${infer P}.${infer U}`
+type Extend<NS extends string, T extends unknown> = NS extends `${infer P}.${infer U}`
   ? {
       [K in P]: Extend<U, T>;
     }
   : NS extends ''
-  ? T
-  : {
-      [K in NS]: NS extends keyof T
-        ? Exclude<keyof T, NS> extends never
-          ? T[NS]
-          : T
-        : T;
-    };
+    ? T
+    : {
+        [K in NS]: NS extends keyof T ? (Exclude<keyof T, NS> extends never ? T[NS] : T) : T;
+      };
 type PickValues<T, K> = T[Extract<K, keyof T>];
 type ReindexRegistryByKey<Registry extends GeneratedRegistry> = {
   [K in keyof Registry as AddonIDToKey<Registry[K]['id']>]: Extend<
@@ -105,7 +95,7 @@ type ReindexRegistryByKey<Registry extends GeneratedRegistry> = {
 type WithAddons<
   Base extends unknown,
   IDs extends AddonID[] | undefined = undefined,
-  Registry extends GeneratedRegistry | undefined = undefined
+  Registry extends GeneratedRegistry | undefined = undefined,
 > = IDs extends AddonID[]
   ? Prettify<
       Base &
@@ -114,9 +104,7 @@ type WithAddons<
             [K in keyof IDs]: IDs[K] extends AddonID
               ? PickValues<
                   ReindexRegistryByKey<
-                    Registry extends GeneratedRegistry
-                      ? Registry
-                      : AddonsTypesRegistry
+                    Registry extends GeneratedRegistry ? Registry : AddonsTypesRegistry
                   >,
                   AddonIDToKey<IDs[K]>
                 >
@@ -125,10 +113,7 @@ type WithAddons<
         >
     >
   : Base;
-type AccessDeniedErrorCode =
-  | 'invalid_scope'
-  | 'invalid_request'
-  | 'server_error';
+type AccessDeniedErrorCode = 'invalid_scope' | 'invalid_request' | 'server_error';
 interface InternalCommandAddError {
   type: 'error';
   code: 'MaxSideEffectsExceeded';
@@ -358,12 +343,7 @@ type EnrollmentFactorSelector =
 type FactorSelector =
   | {
       /** A type of authentication factor such as `push-notification`, `phone`, `email`, `otp`, `webauthn-roaming`, `webauthn-platform`, and `recovery-code`. */
-      type:
-        | 'otp'
-        | 'email'
-        | 'webauthn-platform'
-        | 'webauthn-roaming'
-        | 'recovery-code';
+      type: 'otp' | 'email' | 'webauthn-platform' | 'webauthn-roaming' | 'recovery-code';
       /** Additional options for configuring a factor of a given type. */
       options?: {
         [property: string]: any;
@@ -1793,12 +1773,7 @@ type Geoip = {
 } & {
   [additionalProperties: string]: any;
 };
-type SAMLAttributeValue =
-  | string
-  | number
-  | boolean
-  | null
-  | (string | number | boolean)[];
+type SAMLAttributeValue = string | number | boolean | null | (string | number | boolean)[];
 type Scope = string[];
 type CustomClaims = {
   [additionalProperties: string]: any;
@@ -1919,7 +1894,9 @@ declare interface ValidationAPI {
   error(errorCode: string, errorMessage: string): PostLoginAPI;
 }
 
-declare interface Secrets {}
+declare interface Secrets {
+
+}
 declare interface Configuration {}
 declare interface BaseEvent extends PostLoginV3Event {
   /**
@@ -1933,7 +1910,7 @@ declare interface BaseEvent extends PostLoginV3Event {
 }
 declare type TEvent<
   IDs extends AddonID[] = AddonID[],
-  Registry extends GeneratedRegistry | undefined = undefined
+  Registry extends GeneratedRegistry | undefined = undefined,
 > = WithAddons<BaseEvent, IDs, Registry>;
 
 declare interface AccessAPI {
@@ -2044,10 +2021,7 @@ declare interface AuthenticationAPI {
    * @param factor An object describing the type of factor that should be used for the initial enrollment prompts and its options.
    * @param options Additional options which can also specify `additionalFactors` as a property.
    */
-  enrollWith(
-    factor: EnrollmentFactorSelector,
-    options?: EnrollWithOptions
-  ): void;
+  enrollWith(factor: EnrollmentFactorSelector, options?: EnrollWithOptions): void;
   /**
    *
    * Request an enrollment for multifactor authentication using any of the supplied factors (showing a factor selection
@@ -2295,9 +2269,7 @@ declare interface SAMLResponseAPI {
    * If true (default), for each claim that is not mapped to the common profile, Auth0 passes through those in the output assertion.
    * If false, those claims won't be mapped.
    */
-  setPassthroughClaimsWithNoMapping(
-    passthroughClaimsWithNoMapping: boolean
-  ): void;
+  setPassthroughClaimsWithNoMapping(passthroughClaimsWithNoMapping: boolean): void;
   /**
    * If passthroughClaimsWithNoMapping is true and this is false (default), for each claim not mapped to the common profile Auth0 adds a prefix http://schema.auth0.com.
    * If true it will pass through the claim as-is.
@@ -2542,50 +2514,47 @@ declare interface PostLoginAction {
 }
 
 declare interface RefreshTokenAPI {
-/**
- * [Enterprise Customers] Sets a new absolute expiration time for the current refresh token
- * The expiration cannot be set higher than the maximum absolute refresh token lifetime set in the settings.
- * When called multiple times - the earliest expiration time will be used.
- *
- * @param absolute Required, the new absolute expiration time.
- */
-setExpiresAt(absolute:number): void;
+  /**
+   * [Enterprise Customers] Sets a new absolute expiration time for the current refresh token
+   * The expiration cannot be set higher than the maximum absolute refresh token lifetime set in the settings.
+   * When called multiple times - the earliest expiration time will be used.
+   *
+   * @param absolute Required, the new absolute expiration time.
+   */
+  setExpiresAt(absolute: number): void;
 
-/**
- * [Enterprise Customers] Sets a new idle expiration time for the current refresh token.
- * The expiration cannot be set higher than the maximum absolute refresh token lifetime set in the settings.
- * When called multiple times - the earliest expiration time will be used.
- *
- * @param idle Required, the new idle expiration time.
- */
-setIdleExpiresAt(idle:number): void;
+  /**
+   * [Enterprise Customers] Sets a new idle expiration time for the current refresh token.
+   * The expiration cannot be set higher than the maximum absolute refresh token lifetime set in the settings.
+   * When called multiple times - the earliest expiration time will be used.
+   *
+   * @param idle Required, the new idle expiration time.
+   */
+  setIdleExpiresAt(idle: number): void;
 }
 declare interface SessionAPI {
-/**
- * [Enterprise Customers] Sets a new absolute expiration time for the current session
- * The expiration cannot be set higher than the maximum absolute session lifetime set in the settings.
- * When called multiple times - the earliest expiration time will be used.
- *
- * @param absolute Required, the new absolute expiration time.
- */
-setExpiresAt(absolute:number): void;
+  /**
+   * [Enterprise Customers] Sets a new absolute expiration time for the current session
+   * The expiration cannot be set higher than the maximum absolute session lifetime set in the settings.
+   * When called multiple times - the earliest expiration time will be used.
+   *
+   * @param absolute Required, the new absolute expiration time.
+   */
+  setExpiresAt(absolute: number): void;
 
-/**
- * [Enterprise Customers] Sets a new idle expiration time for the current session.
- * The expiration cannot be set higher than the maximum absolute session lifetime set in the settings.
- * When called multiple times - the earliest expiration time will be used.
- *
- * @param idle Required, the new idle expiration time.
- */
-setIdleExpiresAt(idle:number): void;
+  /**
+   * [Enterprise Customers] Sets a new idle expiration time for the current session.
+   * The expiration cannot be set higher than the maximum absolute session lifetime set in the settings.
+   * When called multiple times - the earliest expiration time will be used.
+   *
+   * @param idle Required, the new idle expiration time.
+   */
+  setIdleExpiresAt(idle: number): void;
 }
-declare interface PostLoginAPI { readonly  session: SessionAPI;  }
-declare interface PostLoginAPI { readonly  refreshToken: RefreshTokenAPI;  }
+declare interface PostLoginAPI {
+  readonly session: SessionAPI;
+}
+declare interface PostLoginAPI {
+  readonly refreshToken: RefreshTokenAPI;
+}
 declare type PostLoginEvent = TEvent;
-
-/**
- * In a real action this will be updated
- */
-declare type Secrets = {
-  [key: string]: string
-};
