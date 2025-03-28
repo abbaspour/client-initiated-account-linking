@@ -35,8 +35,9 @@
  *
  *  - `ALLOWED_CLIENT_IDS` Comma Separated List of all client ids, by default all clients may request when using OIDC
  *  - `DEBUG` `debug` compatible string, this action uses `account-linking:{info,error,verbose}` to differentiate between logs
- *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session.
- *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. 
+ *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session. Default: "yes"
+ *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. Default: "yes"
+ *  - `PIN_IP_ADDRESS` - If set to "yes" will require the transaction complete on same IP Address, this can be finnicky for some customers. Default: "no"
  */
 
 // Required Modules
@@ -54,7 +55,6 @@ const logger = {
     verbose: debug('account-linking:verbose'),
 };
 
-const USE_IP = true;
 
 // Global constants
 const SCOPES = {
@@ -143,8 +143,9 @@ function normalizeEventConfiguration(event) {
     event.configuration = event.configuration || {};
     // prefer configuration
     event.configuration.DEBUG = event.configuration?.DEBUG || event.secrets?.DEBUG || "account-linking:error";
-    event.configuration.ENFORCE_MFA = event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || "no";
+    event.configuration.ENFORCE_MFA = event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || "yes";
     event.configuration.ENFORCE_EMAIL_VERIFICATION = event.configuration?.ENFORCE_EMAIL_VERIFICATION || event.secrets?.ENFORCE_EMAIL_VERIFICATION || "yes";
+    event.configuration.PIN_IP_ADDRESS = event.configuration?.PIN_IP_ADDRESS || event.secrets?.PIN_IP_ADDRESS || "no";
 }
 
 // Helper Utilities
@@ -505,7 +506,7 @@ function getAuth0Issuer(event) {
  * @param {PostLoginEvent} event
  */
 async function getUniqueTransaction(event) {
-    const { ACTION_SECRET: appSecret } = event.secrets;
+    const { ACTION_SECRET: appSecret, PIN_IP: pinIp } = event.configuration;
     // eslint-disable-next-line no-unused-vars
     const { protocol, requested_scopes, response_type, redirect_uri, state, locale } =
         /**{@type {Transaction}} */ event.transaction;
@@ -521,7 +522,7 @@ async function getUniqueTransaction(event) {
         sessionId,
     ];
 
-    if (USE_IP) {
+    if (pinIp) {
         stableTransaction.push(event.request.ip);
     }
 
