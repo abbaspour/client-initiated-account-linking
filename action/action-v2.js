@@ -3,15 +3,15 @@
  * in an Auth0 Action. This action facilitates OIDC Applications to be able to
  * request account linking from the Authorization Server instead of having to perform
  * this in-app.
- * 
+ *
  * This Action is intended to allow adding additional services, such as Google, Facebook
- * Microsoft, Github etc, to an end user's primary user-account. 
- * 
+ * Microsoft, Github etc, to an end user's primary user-account.
+ *
  * This Action operates with the model of a primary account, the account the user is currently
  * logged-in as, and a secondary account. An account which will be linked to the primary account.
  * Upon successful linking, the secondary account will be a part of the primary. This is a destructive
- * action. 
- * 
+ * action.
+ *
  *
  * To request account linking the application must send the following parameters
  * - `scope=link_account`, used to determine account linking is required
@@ -55,7 +55,6 @@ const logger = {
     verbose: debug('account-linking:verbose'),
 };
 
-
 // Global constants
 const SCOPES = {
     LINK: 'link_account',
@@ -98,16 +97,25 @@ exports.onExecutePostLogin = async (event, api) => {
                 return;
             }
 
-            if (event.configuration.ENFORCE_MFA === "yes") {
-                if (!event.authentication?.methods?.some(method => method.name === "mfa")) {
-                    logger.info("Denying linking request for %s mfa was not performed", event.user.user_id);
+            if (event.configuration.ENFORCE_MFA === 'yes') {
+                if (!event.authentication?.methods?.some((method) => method.name === 'mfa')) {
+                    logger.info(
+                        'Denying linking request for %s mfa was not performed',
+                        event.user.user_id,
+                    );
                     api.access.deny('You must perform MFA for account linking');
                     return;
                 }
             }
 
-            if (event.configuration.ENFORCE_EMAIL_VERIFICATION === "yes" && event.user.email_verified === false) {
-                logger.info("Denying linking request for %s email is not verified", event.user.user_id);
+            if (
+                event.configuration.ENFORCE_EMAIL_VERIFICATION === 'yes' &&
+                event.user.email_verified === false
+            ) {
+                logger.info(
+                    'Denying linking request for %s email is not verified',
+                    event.user.user_id,
+                );
                 api.access.deny('Email Verification is required for account linking');
                 return;
             }
@@ -142,10 +150,16 @@ exports.onContinuePostLogin = async (event, api) => {
 function normalizeEventConfiguration(event) {
     event.configuration = event.configuration || {};
     // prefer configuration
-    event.configuration.DEBUG = event.configuration?.DEBUG || event.secrets?.DEBUG || "account-linking:error";
-    event.configuration.ENFORCE_MFA = event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || "yes";
-    event.configuration.ENFORCE_EMAIL_VERIFICATION = event.configuration?.ENFORCE_EMAIL_VERIFICATION || event.secrets?.ENFORCE_EMAIL_VERIFICATION || "yes";
-    event.configuration.PIN_IP_ADDRESS = event.configuration?.PIN_IP_ADDRESS || event.secrets?.PIN_IP_ADDRESS || "no";
+    event.configuration.DEBUG =
+        event.configuration?.DEBUG || event.secrets?.DEBUG || 'account-linking:error';
+    event.configuration.ENFORCE_MFA =
+        event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || 'yes';
+    event.configuration.ENFORCE_EMAIL_VERIFICATION =
+        event.configuration?.ENFORCE_EMAIL_VERIFICATION ||
+        event.secrets?.ENFORCE_EMAIL_VERIFICATION ||
+        'yes';
+    event.configuration.PIN_IP_ADDRESS =
+        event.configuration?.PIN_IP_ADDRESS || event.secrets?.PIN_IP_ADDRESS || 'no';
 }
 
 // Helper Utilities
@@ -307,7 +321,7 @@ function extractCachedJWKS(event, api) {
         const value = JSON.parse(cachedJWKCache.value);
         return value;
     } catch (err) {
-        // We should default to return null here
+        // We should default to return here
         // we can always fetch as fallback
     }
     return undefined;
