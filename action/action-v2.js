@@ -71,13 +71,7 @@ const ALLOWED_PROTOCOLS = [
  * @returns
  */
 exports.onExecutePostLogin = async (event, api) => {
-    event.configuration = event.configuration || {};
-    // prefer configuration
-    event.configuration.DEBUG = event.configuration?.DEBUG || event.secrets?.DEBUG || "account-linking:error";
-    event.configuration.ENFORCE_MFA = event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || "no";
-    event.configuration.ENFORCE_EMAIL_VERIFICATION = event.configuration?.ENFORCE_EMAIL_VERIFICATION || event.secrets?.ENFORCE_EMAIL_VERIFICATION || "yes";
-
-
+    normalizeEventConfiguration(event);
     debug.enable(event.configuration.DEBUG || 'account-linking:*');
 
     try {
@@ -96,6 +90,7 @@ exports.onExecutePostLogin = async (event, api) => {
                 if (event.authentication?.methods?.some(method => method.name === "mfa")) {
                     logger.info("Denying linking request for %s mfa was not performed", event.user.user_id);
                     api.access.deny('You must perform MFA for account linking');
+                    return;
                 }
             }
 
@@ -121,10 +116,24 @@ exports.onExecutePostLogin = async (event, api) => {
  * @returns
  */
 exports.onContinuePostLogin = async (event, api) => {
+    normalizeEventConfiguration(event);
     if (isLinkingRequest(event)) {
         return handleLinkingCallback(event, api);
     }
 };
+
+/**
+ * Check's if this an Account Linking Request
+ *
+ * @param {PostLoginEvent} event
+ */
+function normalizeEventConfiguration(event) {
+    event.configuration = event.configuration || {};
+    // prefer configuration
+    event.configuration.DEBUG = event.configuration?.DEBUG || event.secrets?.DEBUG || "account-linking:error";
+    event.configuration.ENFORCE_MFA = event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || "no";
+    event.configuration.ENFORCE_EMAIL_VERIFICATION = event.configuration?.ENFORCE_EMAIL_VERIFICATION || event.secrets?.ENFORCE_EMAIL_VERIFICATION || "yes";
+}
 
 // Helper Utilities
 
@@ -550,9 +559,6 @@ async function linkAndMakePrimary(event, api, secondaryIdentityUserId) {
     }
 
     try {
-        /**
-         * @todo: why was amin splitting
-         */
         await client.users.link({ id: primaryUserId }, splitSubClaim(secondaryIdentityUserId));
         logger.info(
             'link successful current user %s to %s',
