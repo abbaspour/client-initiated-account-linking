@@ -234,7 +234,7 @@ async function handleLinkingRequest(event, api) {
      * @type {Record<string, string>}
      */
     const authorizationParameters = {
-        redirect_uri: new URL('/continue', issuer).toString(), // TODO <-- HERE add this user's ID
+        redirect_uri: new URL('/continue', issuer).toString(),
         code_challenge: codeChallenge,
         code_challenge_method: 'S256',
         connection: requestedConnection,
@@ -388,7 +388,6 @@ function getCallbackUrl(event) {
  * - Ensure the `client_id` in `id_token` matches the `client_id` of `event`.
  * - Ensure the `id_token` was issued to one of the event.secrets.ALLOWED_CLIENTs
  * - Ensure the `user_id` of the current `event.user` is the same as current user
- * - @todo: Ensure the `sid` in the `id_token` matches `event.session`
  *
  *
  * @param {PostLoginEvent} event
@@ -513,12 +512,11 @@ function getAuth0Issuer(event) {
  * and the continue handler. We need to derive a unique string
  *
  * @todo: Once `transaction.id` is stable, us that to derive PKCE
- * @todo: USE hkdf.
  *
  * @param {PostLoginEvent} event
  */
 async function getUniqueTransaction(event) {
-    const { ACTION_SECRET: appSecret, PIN_IP: pinIp } = event.configuration;
+    const { ACTION_SECRET: appSecret, PIN_IP_ADDRESS: pinIp } = event.configuration;
     // eslint-disable-next-line no-unused-vars
     const { protocol, requested_scopes, response_type, redirect_uri, state, locale } =
         /**{@type {Transaction}} */ event.transaction;
