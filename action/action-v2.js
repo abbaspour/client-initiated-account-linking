@@ -405,9 +405,8 @@ async function validateIdTokenHint(event, api, jwksCache) {
             audience: clientId,
             subject: userId,
             issuer: issuer.toString(),
+            maxTokenAge: '10m',
         });
-
-        const now = 
 
         return 'valid';
     } catch (err) {
