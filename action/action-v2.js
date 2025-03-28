@@ -3,6 +3,15 @@
  * in an Auth0 Action. This action facilitates OIDC Applications to be able to
  * request account linking from the Authorization Server instead of having to perform
  * this in-app.
+ * 
+ * This Action is intended to allow adding additional services, such as Google, Facebook
+ * Microsoft, Github etc, to an end user's primary user-account. 
+ * 
+ * This Action operates with the model of a primary account, the account the user is currently
+ * logged-in as, and a secondary account. An account which will be linked to the primary account.
+ * Upon successful linking, the secondary account will be a part of the primary. This is a destructive
+ * action. 
+ * 
  *
  * To request account linking the application must send the following parameters
  * - `scope=link_account`, used to determine account linking is required
@@ -21,10 +30,13 @@
  *  - `AUTH0_CLIENT_ID` Client ID for Regular Web Applicaton, this action is registered to
  *  - `AUTH0_CLIENT_SECRET` Client Secret for Regular Web Application, this action is registered to
  *  - `ACTION_SECRET` A secret that is unique to this application you can use `uuidgen` or a secure random string
+ *
  * ## Optional Secrets and Configuration
  *
  *  - `ALLOWED_CLIENT_IDS` Comma Separated List of all client ids, by default all clients may request when using OIDC
  *  - `DEBUG` `debug` compatible string, this action uses `account-linking:{info,error,verbose}` to differentiate between logs
+ *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session.
+ *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. 
  */
 
 // Required Modules
