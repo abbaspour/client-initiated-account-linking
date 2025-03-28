@@ -99,7 +99,7 @@ exports.onExecutePostLogin = async (event, api) => {
             }
 
             if (event.configuration.ENFORCE_MFA === "yes") {
-                if (event.authentication?.methods?.some(method => method.name === "mfa")) {
+                if (!event.authentication?.methods?.some(method => method.name === "mfa")) {
                     logger.info("Denying linking request for %s mfa was not performed", event.user.user_id);
                     api.access.deny('You must perform MFA for account linking');
                     return;
@@ -253,7 +253,6 @@ async function handleLinkingCallback(event, api) {
     try {
         logger.info('Attempting callback verification for %s', event.user.user_id);
 
-        const jwksCacheInput = extractCachedJWKS(event, api);
         const tokens = await client.authorizationCodeGrant(config, callbackUrl, {
             expectedState: client.skipStateCheck,
             idTokenExpected: true,
