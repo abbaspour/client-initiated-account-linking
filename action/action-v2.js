@@ -20,6 +20,9 @@
  * - `requested_connection`, the provider which is requested.
  * - `requested_connection_scope`, OPTIONAL list of scopes that are requested by the provider,
  *    if not present it will leverage the configured scopes in the Dashboard.
+ * 
+ * If you intend to perform custom MFA we recommend using another action prior to this to centralize and 
+ * enforce those policies. This Action should be treated as a client.
  *
  * Author: Auth0 Product Architecture
  * Date: 2025-03-21
@@ -35,8 +38,9 @@
  *
  *  - `ALLOWED_CLIENT_IDS` Comma Separated List of all client ids, by default all clients may request when using OIDC
  *  - `DEBUG` `debug` compatible string, this action uses `account-linking:{info,error,verbose}` to differentiate between logs
- *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session. Default: "yes"
- *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. Default: "yes"
+ *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session, it will also enforce MFA in the nested
+ *     if MFA is not performed but is enrolled on the end-user. Default: "no"
+ *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. Default: "no"
  *  - `PIN_IP_ADDRESS` - If set to "yes" will require the transaction complete on same IP Address, this can be finnicky for some customers. Default: "no"
  */
 
@@ -98,13 +102,18 @@ exports.onExecutePostLogin = async (event, api) => {
             }
 
             if (event.configuration.ENFORCE_MFA === 'yes') {
-                if (!event.authentication?.methods?.some((method) => method.name === 'mfa')) {
-                    logger.info(
-                        'Denying linking request for %s mfa was not performed',
-                        event.user.user_id,
-                    );
-                    api.access.deny('You must perform MFA for account linking');
-                    return;
+                if (
+                    Array.isArray(event.user.enrolledFactors) &&
+                    event.user.enrolledFactors.length > 0
+                ) {
+                    if (!event.authentication?.methods?.some((method) => method.name === 'mfa')) {
+                        logger.info(
+                            'Denying linking request for %s mfa was not performed in this transaction, a previous action must use .challengeWith, .challengeWithAny',
+                            event.user.user_id,
+                        );
+                        api.access.deny('You must perform MFA for account linking');
+                        return;
+                    }
                 }
             }
 
@@ -121,6 +130,12 @@ exports.onExecutePostLogin = async (event, api) => {
             }
 
             return handleLinkingRequest(event, api);
+        }
+
+        if (isNestedTransaction(event)) {
+            if (event.configuration.ENFORCE_MFA === 'yes') {
+                forceMFAForNestedTransaction(event, api);
+            }
         }
     } catch (err) {
         logger.error('Unexpected Error, %s', err.toString());
@@ -153,16 +168,48 @@ function normalizeEventConfiguration(event) {
     event.configuration.DEBUG =
         event.configuration?.DEBUG || event.secrets?.DEBUG || 'account-linking:error';
     event.configuration.ENFORCE_MFA =
-        event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || 'yes';
+        event.configuration?.ENFORCE_MFA || event.secrets?.ENFORCE_MFA || 'no';
     event.configuration.ENFORCE_EMAIL_VERIFICATION =
         event.configuration?.ENFORCE_EMAIL_VERIFICATION ||
         event.secrets?.ENFORCE_EMAIL_VERIFICATION ||
-        'yes';
+        'no';
     event.configuration.PIN_IP_ADDRESS =
         event.configuration?.PIN_IP_ADDRESS || event.secrets?.PIN_IP_ADDRESS || 'no';
 }
 
 // Helper Utilities
+
+/**
+ * Function that detects if we are running within a nested transaction
+ * @param {PostLoginEvent} event
+ */
+function isNestedTransaction(event) {
+    const { AUTH0_CLIENT_ID: clientId } = event.secrets;
+
+    if (event.client.client_id === clientId) {
+        return true;
+    }
+}
+
+/**
+ * Forces MFA for the nested transaction
+ * @param {PostLoginEvent} event
+ * @param {PostLoginAPI} api
+ */
+function forceMFAForNestedTransaction(event, api) {
+    if (Array.isArray(event.user.enrolledFactors) && event.user.enrolledFactors.length > 0) {
+        api.authentication.challengeWithAny(
+            event.user.enrolledFactors.map((factor) =>
+                factor.method === 'sms'
+                    ? {
+                          type: 'phone',
+                          options: { preferredMethod: 'sms' },
+                      }
+                    : { type: factor.method },
+            ),
+        );
+    }
+}
 
 /**
  * Check's if this an Account Linking Request
@@ -516,7 +563,8 @@ function getAuth0Issuer(event) {
  * @param {PostLoginEvent} event
  */
 async function getUniqueTransaction(event) {
-    const { ACTION_SECRET: appSecret, PIN_IP_ADDRESS: pinIp } = event.configuration;
+    const { ACTION_SECRET: appSecret } = event.secrets;
+    const { PIN_IP_ADDRESS: pinIp } = event.configuration;
     // eslint-disable-next-line no-unused-vars
     const { protocol, requested_scopes, response_type, redirect_uri, state, locale } =
         /**{@type {Transaction}} */ event.transaction;

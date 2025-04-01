@@ -11,3 +11,4 @@ terraform.auto.tfvars
 package-lock.json
 *.pem
 node_modules
+.DS_Store
