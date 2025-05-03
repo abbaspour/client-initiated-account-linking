@@ -20,8 +20,8 @@
  * - `requested_connection`, the provider which is requested.
  * - `requested_connection_scope`, OPTIONAL list of scopes that are requested by the provider,
  *    if not present it will leverage the configured scopes in the Dashboard.
- * 
- * If you intend to perform custom MFA we recommend using another action prior to this to centralize and 
+ *
+ * If you intend to perform custom MFA we recommend using another action prior to this to centralize and
  * enforce those policies. This Action should be treated as a client.
  *
  * Author: Auth0 Product Architecture
@@ -30,6 +30,7 @@
  *
  * ## Required Secrets
  *
+ *  - `AUTH0_DOMAIN` Auth0 Domain is required to access Managemnet API
  *  - `AUTH0_CLIENT_ID` Client ID for Regular Web Applicaton, this action is registered to
  *  - `AUTH0_CLIENT_SECRET` Client Secret for Regular Web Application, this action is registered to
  *  - `ACTION_SECRET` A secret that is unique to this application you can use `uuidgen` or a secure random string
@@ -86,6 +87,7 @@ const ALLOWED_PROTOCOLS = [
  * @returns
  */
 exports.onExecutePostLogin = async (event, api) => {
+    ensureSecrets(event);
     normalizeEventConfiguration(event);
     debug.enable(event.configuration.DEBUG || 'account-linking:*');
 
@@ -151,6 +153,7 @@ exports.onExecutePostLogin = async (event, api) => {
  * @returns
  */
 exports.onContinuePostLogin = async (event, api) => {
+    ensureSecrets(event);
     normalizeEventConfiguration(event);
     if (isLinkingRequest(event)) {
         return handleLinkingCallback(event, api);
@@ -175,6 +178,36 @@ function normalizeEventConfiguration(event) {
         'no';
     event.configuration.PIN_IP_ADDRESS =
         event.configuration?.PIN_IP_ADDRESS || event.secrets?.PIN_IP_ADDRESS || 'no';
+}
+
+/**
+ * Abort the Action unless every required secret is configured.
+ * Works on the Node 22 runtime (needs Set.prototype.difference()).
+ *
+ * @param {PostLoginEvent} event
+ */
+function ensureSecrets(event) {
+    const required = new Set([
+        'AUTH0_DOMAIN',
+        'AUTH0_CLIENT_ID',
+        'AUTH0_CLIENT_SECRET',
+        'ACTION_SECRET',
+    ]);
+
+    const available = new Set(
+        Object.entries(event.secrets ?? {})
+            .filter(([, v]) => typeof v === 'string' && v.trim() !== '')
+            .map(([k]) => k),
+    );
+
+    // Node 22: A ∖ B
+    const missing = required.difference(available);
+
+    if (missing.size) {
+        throw new Error(
+            `Missing required secret${missing.size > 1 ? 's' : ''}: ${[...missing].join(', ')}`,
+        );
+    }
 }
 
 // Helper Utilities
@@ -565,8 +598,13 @@ function getAuth0Issuer(event) {
 async function getUniqueTransaction(event) {
     const { ACTION_SECRET: appSecret } = event.secrets;
     const { PIN_IP_ADDRESS: pinIp } = event.configuration;
+
+    if (!event.transaction) {
+        throw new Error('Linking is only allowed in interactive flows');
+    }
+
     // eslint-disable-next-line no-unused-vars
-    const { protocol, requested_scopes, response_type, redirect_uri, state, locale } =
+    const { protocol, requested_scopes, response_type, redirect_uri, state, locale, id } =
         /**{@type {Transaction}} */ event.transaction;
     const { id: sessionId } = event.session || {};
     const stableTransaction = [
@@ -578,6 +616,7 @@ async function getUniqueTransaction(event) {
         state,
         locale,
         sessionId,
+        id,
     ];
 
     if (pinIp) {

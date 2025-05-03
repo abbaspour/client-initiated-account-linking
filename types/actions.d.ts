@@ -1360,6 +1360,7 @@ type Transaction1 = Transaction &
     requested_authorization_details?: RichAuthorizationDetails;
     /** Dynamic Linking ID that allows developers to reference this transaction. */
     linking_id?: string;
+    id: string;
   } & {
     [additionalProperties: string]: any;
   });
