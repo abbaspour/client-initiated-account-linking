@@ -39,14 +39,9 @@
  *
  *  - `ALLOWED_CLIENT_IDS` Comma Separated List of all client ids, by default all clients may request when using OIDC
  *  - `DEBUG` `debug` compatible string, this action uses `account-linking:{info,error,verbose}` to differentiate between logs
-<<<<<<< HEAD
  *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session, it will also enforce MFA in the nested
  *     if MFA is not performed but is enrolled on the end-user. Default: "no"
  *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. Default: "no"
-=======
- *  - `ENFORCE_MFA` - if set to "yes" will require MFA to have been performed on the current session. Default: "yes"
- *  - `ENFORCE_EMAIL_VERIFICATION` - if set to "yes" will require the `primary` account's email is verified. Default: "yes"
->>>>>>> ae5fe542f6c63aa443e32e90079f35d08a4ca2fe
  *  - `PIN_IP_ADDRESS` - If set to "yes" will require the transaction complete on same IP Address, this can be finnicky for some customers. Default: "no"
  */
 
